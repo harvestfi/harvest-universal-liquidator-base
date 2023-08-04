@@ -10,24 +10,18 @@ import { config } from "./package.json"
 dotenvConfig({ path: resolve(__dirname, "./.env") })
 
 function getNetworks(): NetworksUserConfig {
-  if (!process.env.ALCHEMEY_KEY)
-    throw new Error(
-      `ALCHEMEY_KEY env var not set. Copy .env.template to .env and set the env var`
-    )
-
-  const alchemyApiKey = process.env.ALCHEMEY_KEY;
   const accounts = process.env.MNEMONIC ? { mnemonic: process.env.MNEMONIC } : [];
 
   return {
     hardhat: {
       accounts: accounts,
       forking: {
-        url: `https://arb-mainnet.g.alchemy.com/v2/${alchemyApiKey}`,
+        url: `https://developer-access-mainnet.base.org`,
         // blockNumber: 82350734, // <-- edit here
       },
     },
     mainnet: {
-      url: `https://arb-mainnet.g.alchemy.com/v2/${alchemyApiKey}`,
+      url: `https://developer-access-mainnet.base.org`,
       accounts: accounts,
     },
   }
@@ -50,8 +44,18 @@ const hardhatConfig: HardhatUserConfig = {
   },
   etherscan: {
     apiKey: {
-      arbitrumOne: `${process.env.ARBISCAN_API_KEY}`
+      base: `${process.env.BASESCAN_API_KEY}`
     },
+    customChains: [
+      {
+        network: "base",
+        chainId: 8453,
+        urls: {
+          apiURL: "https://api.basescan.org/api",
+          browserURL: "https://basescan.com"
+        }
+      }
+    ]
   },
   gasReporter: {
     enabled: (process.env.REPORT_GAS) ? true : false

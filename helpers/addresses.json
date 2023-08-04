@@ -1,17 +1,9 @@
 {
-    "UniV3RouterAddr": "0xE592427A0AEce92De3Edee1F18E0157C05861564",
-    "CamelotRouterAddr": "0xc873fEcbd354f5A56E00E710B90EF4201db2448d",
-    "SushiRouterAddr": "0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506",
-    "CurveRouterAddr": "0x4c2Af2Df2a7E567B5155879720619EA06C5BB15D",
+    "UniV3RouterAddr": "",
     "BalanceeVaultAddr": "0xBA12222222228d8Ba445958a75a0704d566BF2C8",
-    "LizardRouterAddr": "0xF26515D5482e2C2FD237149bF6A653dA4794b3D0",
-    "Governance": "0xF066789028fE31D4f53B69B81b328B8218Cc0641",
-    "UniversalLiquidatorAddr": "0x5f513cA572e7eD10487cEF2b0636C07eA9b82AD8",
-    "UniversalLiquidatorRegistryAddr": "0xbcE9d31FfA2c96E11cEbEAa021136a83A3575D95",
-    "UniV3DexAddr": "0x357F2E6Cd64A1fD4525e4eC22d7635115C9Ca3cb",
-    "BalancerDexAddr": "",
-    "CamelotDexAddr": "0xea80591533Df077Eaa063f97434d29222fce0dB1",
-    "SushiDexAddr": "",
-    "CurveDexAddr": "",
-    "LizardDexAddr": ""
+    "Governance": "0x6a74649aCFD7822ae8Fb78463a9f2192752E5Aa2",
+    "UniversalLiquidatorAddr": "0x589Ff9f1E9f517b232808280c46a64a36Ac557d5",
+    "UniversalLiquidatorRegistryAddr": "0x07d212988ECDf8d2c2Ab448114685CE5fDf07a4C",
+    "UniV3DexAddr": "",
+    "BalancerDexAddr": "0xc0eA4B51DBDD1DA33610c70Cbd2a7DB426f904B3"
 }

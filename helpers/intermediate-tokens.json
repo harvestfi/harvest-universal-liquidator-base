@@ -1,21 +1,21 @@
 {
     "list": [
-        "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1", 
-        "0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8", 
-        "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9"
+        "0x4200000000000000000000000000000000000006", 
+        "0xd9aAEc86B65D86f6A7B5B1b0c42FFA531710b6CA", 
+        "0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb"
     ],
     "test": [
         {
             "name": "WETH",
-            "address": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1"
+            "address": "0x4200000000000000000000000000000000000006"
         },
         {
             "name": "USDC",
-            "address": "0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8"
+            "address": "0xd9aAEc86B65D86f6A7B5B1b0c42FFA531710b6CA"
         },
         {
-            "name": "USDT",
-            "address": "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9"
+            "name": "DAI",
+            "address": "0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb"
         }
     ]
 }

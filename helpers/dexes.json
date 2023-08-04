@@ -5,24 +5,8 @@
             "name": "uniV3"
         },
         {
-            "file": "CamelotDex",
-            "name": "camelot"
-        },
-        {
-            "file": "SushiswapDex",
-            "name": "sushi"
-        },
-        {
-            "file": "CurveDex",
-            "name": "curve"
-        },
-        {
             "file": "BalancerDex",
             "name": "balancer"
-        },
-        {
-            "file": "LizardDex",
-            "name": "lizard"
         }
     ]
 }

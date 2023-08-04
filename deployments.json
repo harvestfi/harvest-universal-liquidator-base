@@ -1,14 +1,10 @@
 {
-  "UniversalLiquidator": "0x5f513cA572e7eD10487cEF2b0636C07eA9b82AD8",
-  "UniversalLiquidatorRegistry": "0xbcE9d31FfA2c96E11cEbEAa021136a83A3575D95",
+  "UniversalLiquidator": "0x589Ff9f1E9f517b232808280c46a64a36Ac557d5",
+  "UniversalLiquidatorRegistry": "0x07d212988ECDf8d2c2Ab448114685CE5fDf07a4C",
   "Dexes": {
-    "camelot": {
-      "hex": "0x7c025502cd8618334ac0e9af7aa2e31f414909ec7f1b6a782a7a98fa94322559",
-      "address": "0xea80591533Df077Eaa063f97434d29222fce0dB1"
-    },
-    "uniV3": {
-      "hex": "0x8f78a54cb77f4634a5bf3dd452ed6a2e33432c73821be59208661199511cd94f",
-      "address": "0x357F2E6Cd64A1fD4525e4eC22d7635115C9Ca3cb"
+    "balancer": {
+      "hex": "0x9e73ce1e99df7d45bc513893badf42bc38069f1564ee511b0c8988f72f127b13",
+      "address": "0xc0eA4B51DBDD1DA33610c70Cbd2a7DB426f904B3"
     }
   }
 }
