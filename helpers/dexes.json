@@ -7,6 +7,10 @@
         {
             "file": "BalancerDex",
             "name": "balancer"
+        },
+        {
+            "file": "BaseswapDex",
+            "name": "baseswap"
         }
     ]
 }

@@ -5,5 +5,6 @@
     "UniversalLiquidatorAddr": "0x589Ff9f1E9f517b232808280c46a64a36Ac557d5",
     "UniversalLiquidatorRegistryAddr": "0x07d212988ECDf8d2c2Ab448114685CE5fDf07a4C",
     "UniV3DexAddr": "",
-    "BalancerDexAddr": "0xc0eA4B51DBDD1DA33610c70Cbd2a7DB426f904B3"
+    "BalancerDexAddr": "0xc0eA4B51DBDD1DA33610c70Cbd2a7DB426f904B3",
+    "BaseswapDexAddr": "0x71368815a89F141278Db593f7Adc5632b434C341"
 }
