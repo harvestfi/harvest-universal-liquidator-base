@@ -9,6 +9,14 @@
     "baseswap": {
       "hex": "0x79705f03f271656041ff9e6bcd6b52287f8b442b97983927d0aefa57ed3a1519",
       "address": "0x71368815a89F141278Db593f7Adc5632b434C341"
+    },
+    "uniV3": {
+      "hex": "0x8f78a54cb77f4634a5bf3dd452ed6a2e33432c73821be59208661199511cd94f",
+      "address": "0x3c304E03e8ba4dAA23671Fffab45288505BF3992"
+    },
+    "aerodrome": {
+      "hex": "0xc570e6c17f57bc6841b1057f94fcf1785f440006714dbd98f64d859b54cd25d3",
+      "address": "0x63dFe27676d53f24E251CbBc0E37ffDC856319a2"
     }
   }
 }
