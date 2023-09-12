@@ -2,6 +2,23 @@
     "list": [
         {
             "sellToken": {
+                "name": "crvUSD",
+                "address": "0x417Ac0e078398C154EdFadD9Ef675d30Be60Af93",
+                "whale": "0xbDBf04185627F9465A58B50c5B4C9d990A2b8103"
+            },
+            "buyToken": {
+                "name": "WETH",
+                "address": "0x4200000000000000000000000000000000000006",
+                "whale": "0xE66eB681394e6Ca9E9d2e3DC2D05f5a683439894"
+            },
+            "paths": [
+                "0x417Ac0e078398C154EdFadD9Ef675d30Be60Af93",
+                "0x4200000000000000000000000000000000000006"
+            ],
+            "dex": "curve"
+        },
+        {
+            "sellToken": {
                 "name": "BAL",
                 "address": "0x040d1EdC9569d4Bab2D15287Dc5A4F10F56a56B8",
                 "whale": "0x7b7b957c284c2c227c980d6e2f804311947b84d0"

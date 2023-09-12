@@ -17,6 +17,10 @@
     "aerodrome": {
       "hex": "0xc570e6c17f57bc6841b1057f94fcf1785f440006714dbd98f64d859b54cd25d3",
       "address": "0x63dFe27676d53f24E251CbBc0E37ffDC856319a2"
+    },
+    "curve": {
+      "hex": "0x5af0ee7dec5167f618066986345e64763b2d91718dfb37f9969a1b0670a83e71",
+      "address": "0xe8CfC226e67194C0Cf87d66E53C635dF2074A50a"
     }
   }
 }
