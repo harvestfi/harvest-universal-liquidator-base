@@ -33,8 +33,8 @@ async function main() {
         const nameBytes = ethers.utils.keccak256(ethers.utils.toUtf8Bytes(name));
         console.log(`${dex} id:`, nameBytes);
         console.log(`${dex} address:`, deployedDex.address);
-        // await registry.addDex(nameBytes, deployedDex.address);
-        await registry.changeDexAddress(nameBytes, deployedDex.address);
+        await registry.addDex(nameBytes, deployedDex.address);
+        // await registry.changeDexAddress(nameBytes, deployedDex.address);
         console.log("Dex added to the Registry:", nameBytes, deployedDex.address);
     } else {
         console.error('Dex contract factory does not have a deploy method.');

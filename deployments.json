@@ -21,6 +21,10 @@
     "curve": {
       "hex": "0x5af0ee7dec5167f618066986345e64763b2d91718dfb37f9969a1b0670a83e71",
       "address": "0xe8CfC226e67194C0Cf87d66E53C635dF2074A50a"
+    },
+    "aeroCL": {
+      "hex": "0x4480c14ab5ba4c36e61cd5b0cf42cd8f12483fbbf0320806b86594b792bc9a8c",
+      "address": "0xb90835c4B7b11e49264f7403E07516e9DC789a03"
     }
   }
 }
