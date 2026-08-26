@@ -101,3 +101,88 @@ Warnings (exit code 1 only with `AUDIT_STRICT=1`):
 - a hop's pool holds less of a token than the `minLiquidity` floor for it
 - a pair has no reverse path
 - a UniV3 hop uses fee 500, which is indistinguishable from never having been set
+
+### Converging the chain to the manifest
+
+`yarn registry:sync` diffs the manifest against the chain and prints the
+transactions that would close the gap — `addDex`, `changeDexAddress`,
+`setIntermediateToken`, `setPath` — each with its target and calldata, ordered so
+that dexes are registered before any path references them.
+
+```shell
+yarn registry:sync                  # dry run, prints calldata
+SYNC_EXECUTE=1 yarn registry:sync   # send them (signer must be the registry owner)
+```
+
+Paths that exist on chain but not in the manifest are reported and cannot be
+fixed: the registry has no `removePath` and `setPath` rejects arrays shorter than
+two, so such a path can only be repointed or adopted into the manifest.
+
+### Proposing better routes
+
+`yarn registry:routes` quotes every registered route against the alternatives and
+reports the pairs where another dex or shape does better.
+
+```shell
+yarn registry:routes                # $1000 test swaps
+PROPOSE_USD=100 yarn registry:routes
+```
+
+For each pair it enumerates candidate routes — direct and via each intermediate
+token, on every dex with a live pool — picks the deepest pool per hop, and quotes
+them all with the same input through each dex's own quoter (`QuoterV2` for
+UniV3/CL, `getAmountsOut` for Aerodrome/Baseswap).
+
+Test swaps are sized in **dollars**, because that is the size a liquidation
+actually is: a route that only looks good on a huge trade is not the one being
+used. There is no price feed involved — each sell token is priced by quoting a
+sliver of its deepest pool into `usdAnchor` (USDC), where price impact is
+negligible, and reading the marginal rate off that. A sell token with no route to
+the anchor is reported rather than guessed at.
+
+- `PROPOSE_USD` value of the test swap (default `1000`)
+- `PROPOSE_MIN_BPS` report threshold (default `50`, i.e. 0.5%)
+- `PROPOSE_LIMIT` only look at the first N paths
+- `PROPOSE_VERBOSE=1` print the trade size and every quote
+
+Curve, Balancer and ERC4626 routes are not quoted, so pairs registered on those
+dexes are skipped rather than compared.
+
+### Applying proposals
+
+`yarn registry:routes` writes what it found to `helpers/proposals.json` (override
+with `PROPOSE_OUT`). `yarn registry:apply` reads that file back and turns the
+proposals into transactions.
+
+```shell
+yarn registry:routes                                  # write proposals.json
+yarn registry:apply                                   # dry run, prints calldata
+APPLY_ONLY="AERO>GB,AERO>SEAM" yarn registry:apply    # just those two
+APPLY_EXECUTE=1 yarn registry:apply                   # send them
+```
+
+A proposal is more than a `setPath`: the target dex needs the same pair config
+the quote was taken with, or the new route lands in a different pool than the one
+that won. So each proposal records the pool and params per hop, and apply emits
+the `setFee` / `setTickSpacing` / `pairSetup` calls needed to match before the
+`setPath` that uses them.
+
+Every proposal is **re-quoted before anything is sent**, because prices move
+between proposing and applying; one that no longer clears the threshold is
+skipped with a note. `APPLY_SKIP_RECHECK=1` disables that.
+
+Two things worth knowing:
+
+- A dex's pair config is global — `pairFee`, `tickSpacing` and `stable` are keyed
+  only by the token pair. Each hop's pool is therefore chosen by quoting every
+  available tier at a realistic size and keeping the best, which makes it the
+  right pool for that hop rather than just for one route. Every other registered
+  path crossing the hop then picks up the improvement for free, with no `setPath`
+  of its own; apply lists those so the effect is visible. The ranking is taken at
+  one trade size, so re-run the proposer afterwards to confirm.
+- On success the manifest is updated to match, since it is the record of intent.
+  Run `yarn registry:audit` afterwards to confirm chain and manifest agree.
+
+- `APPLY_ONLY` comma separated indices or `SELL>BUY` symbols (default: all)
+- `APPLY_MIN_BPS` re-check threshold (default: the file's own `minBps`)
+- `APPLY_IN` read a different proposals file
