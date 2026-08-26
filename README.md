@@ -124,20 +124,26 @@ two, so such a path can only be repointed or adopted into the manifest.
 reports the pairs where another dex or shape does better.
 
 ```shell
-yarn registry:routes
-PROPOSE_VERBOSE=1 yarn registry:routes   # show the trade size and every quote
+yarn registry:routes                 # $100 test swaps
+PROPOSE_USD=1000 yarn registry:routes
 ```
 
 For each pair it enumerates candidate routes — direct and via each intermediate
 token, on every dex with a live pool — picks the deepest pool per hop, and quotes
 them all with the same input through each dex's own quoter (`QuoterV2` for
-UniV3/CL, `getAmountsOut` for Aerodrome/Baseswap). Trade size is a share of the
-deepest first-hop pool anyone offers, so a route that only works at dust size
-shows up as the loss it is.
+UniV3/CL, `getAmountsOut` for Aerodrome/Baseswap).
 
-- `PROPOSE_NOTIONAL_BPS` trade size as bps of that pool (default `100`, i.e. 1%)
+Test swaps are sized in **dollars**, because that is the size a liquidation
+actually is: a route that only looks good on a huge trade is not the one being
+used. There is no price feed involved — each sell token is priced by quoting a
+sliver of its deepest pool into `usdAnchor` (USDC), where price impact is
+negligible, and reading the marginal rate off that. A sell token with no route to
+the anchor is reported rather than guessed at.
+
+- `PROPOSE_USD` value of the test swap (default `100`)
 - `PROPOSE_MIN_BPS` report threshold (default `50`, i.e. 0.5%)
 - `PROPOSE_LIMIT` only look at the first N paths
+- `PROPOSE_VERBOSE=1` print the trade size and every quote
 
 Curve, Balancer and ERC4626 routes are not quoted, so pairs registered on those
 dexes are skipped rather than compared.

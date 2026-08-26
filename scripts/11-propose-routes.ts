@@ -5,28 +5,20 @@ import {
     Manifest, QUOTE_CHUNK, Res, ZERO, decode, isZeroHex, lc, loadManifest, multicall, provider,
 } from "./utils/registry";
 
-// PROPOSE_NOTIONAL_BPS  trade size as bps of the deepest candidate pool (default 1%)
-// PROPOSE_MIN_BPS       only report improvements above this (default 0.5%)
-// PROPOSE_LIMIT         only look at the first N paths (for a quick run)
-const NOTIONAL_BPS = Number(process.env.PROPOSE_NOTIONAL_BPS ?? 100);
+// PROPOSE_USD      value of the test swap in USD (default 100)
+// PROPOSE_MIN_BPS  only report improvements above this (default 0.5%)
+// PROPOSE_LIMIT    only look at the first N paths
+// PROPOSE_VERBOSE  print the trade size and every quote
+const USD = Number(process.env.PROPOSE_USD ?? 100);
 const MIN_BPS = Number(process.env.PROPOSE_MIN_BPS ?? 50);
 const LIMIT = process.env.PROPOSE_LIMIT ? Number(process.env.PROPOSE_LIMIT) : undefined;
-// PROPOSE_VERBOSE=1 prints the trade size and every quote, so a proposal can be checked by hand
 const VERBOSE = process.env.PROPOSE_VERBOSE === "1";
 
 const IPOOL = new utils.Interface(["function factory() view returns (address)"]);
 const alive = (r: Res) => r.success && r.data !== "0x";
 
-/** One concrete way to get from a to b: a dex, a token route, and a tier per hop. */
-interface Route {
-    dex: DexEntry;
-    tokens: string[];
-    tiers: number[];      // fee / tickSpacing per hop; unused for univ2
-    stable?: boolean[];   // solidly only
-    label: string;
-}
-
-interface HopOption { pool: string; tier: number; stable?: boolean; depth?: BigNumber }
+interface Route { dex: DexEntry; tokens: string[]; tiers: number[]; stable?: boolean[]; label: string }
+interface HopOption { pool: string; tier: number; stable?: boolean; depth: BigNumber }
 
 function encodePacked(tokens: string[], tiers: number[], type: "uint24" | "int24") {
     const types: string[] = ["address"];
@@ -35,45 +27,77 @@ function encodePacked(tokens: string[], tiers: number[], type: "uint24" | "int24
     return utils.solidityPack(types, values);
 }
 
+function toUnits(x: number, dec: number): BigNumber {
+    if (!isFinite(x) || x <= 0) return BigNumber.from(0);
+    try { return utils.parseUnits(x.toFixed(Math.min(dec, 18)), dec); } catch { return BigNumber.from(0); }
+}
+
+/** Build the deepest available route for a shape on a dex, or undefined if any hop has no pool. */
+function pick(options: Map<string, HopOption[]>, dex: DexEntry, shape: string[], sym: (t: string) => string): Route | undefined {
+    const picks: HopOption[] = [];
+    for (let h = 0; h < shape.length - 1; h++) {
+        const o = options.get(`${dex.name}|${shape[h]}|${shape[h + 1]}`);
+        if (!o?.length) return undefined;
+        picks.push(o[0]);
+    }
+    return {
+        dex, tokens: shape, tiers: picks.map((o) => o.tier), stable: picks.map((o) => !!o.stable),
+        label: `${dex.name} ${shape.map(sym).join(">")}`,
+    };
+}
+
 async function main() {
     const p = provider();
     const m: Manifest = loadManifest();
     const sym = (t: string) => m.tokens[lc(t)] ?? t.slice(0, 8);
     const byName = new Map(m.dexes.map((d) => [d.name, d]));
     const paths = LIMIT ? m.paths.slice(0, LIMIT) : m.paths;
+    const anchor = lc(m.usdAnchor);
+    const weth = lc(m.intermediateTokens[0]);
 
-    // CL factories publish the tick spacings they support; uniV3 tiers come from the manifest.
     const clDexes = m.dexes.filter((d) => d.kind === "cl");
     const tsRes = await multicall(p, clDexes.map((d) => ({ target: d.poolFactory!, data: ICLFACTORY.encodeFunctionData("tickSpacings") })));
     clDexes.forEach((d, i) => { d.tiers = d.tiers ?? (decode<number[]>(ICLFACTORY, "tickSpacings", tsRes[i]) ?? []).map(Number); });
-
     const candidates = m.dexes.filter((d) => ["uniV3", "cl", "univ2", "solidly"].includes(d.kind));
 
     const tokenList = Object.keys(m.tokens).map(lc);
     const decRes = await multicall(p, tokenList.map((t) => ({ target: t, data: IERC20.encodeFunctionData("decimals") })));
     const DEC = new Map<string, number>();
     tokenList.forEach((t, i) => DEC.set(t, Number(decode<any>(IERC20, "decimals", decRes[i]) ?? 18)));
+    const dec = (t: string) => DEC.get(lc(t)) ?? 18;
     const fmt = (v: BigNumber, t: string) => {
-        const n = Number(utils.formatUnits(v, DEC.get(lc(t)) ?? 18));
+        const n = Number(utils.formatUnits(v, dec(t)));
         return n >= 1000 ? n.toFixed(0) : n >= 1 ? n.toFixed(3) : n.toPrecision(3);
     };
 
-    // ---------- phase 1: which pools exist, and how deep ----------
-    // Enumerating pools first keeps the expensive quoter calls down to routes
-    // that can actually execute.
+    // ---------- shapes: routing candidates, plus a way to price each sell token ----------
     const shapes = new Map<string, string[][]>();
-    const hopSet = new Map<string, { a: string; b: string; dex: DexEntry }>();
     for (const x of paths) {
         const list: string[][] = [[lc(x.sellToken), lc(x.buyToken)]];
         for (const i of m.intermediateTokens.map(lc))
             if (i !== lc(x.sellToken) && i !== lc(x.buyToken)) list.push([lc(x.sellToken), i, lc(x.buyToken)]);
         shapes.set(`${lc(x.sellToken)}|${lc(x.buyToken)}`, list);
-        for (const shape of list)
-            for (let h = 0; h < shape.length - 1; h++)
-                for (const d of candidates)
-                    hopSet.set(`${d.name}|${shape[h]}|${shape[h + 1]}`, { a: shape[h], b: shape[h + 1], dex: d });
+    }
+    const sellTokens = [...new Set(paths.map((x) => lc(x.sellToken)))];
+    const priceShapes = new Map<string, string[][]>();
+    for (const t of sellTokens) {
+        if (t === anchor) continue;
+        const list = [[t, anchor]];
+        if (t !== weth) list.push([t, weth, anchor]);
+        priceShapes.set(t, list);
     }
 
+    const hopSet = new Map<string, { a: string; b: string; dex: DexEntry }>();
+    const addShape = (shape: string[]) => {
+        for (let h = 0; h < shape.length - 1; h++)
+            for (const d of candidates)
+                hopSet.set(`${d.name}|${shape[h]}|${shape[h + 1]}`, { a: shape[h], b: shape[h + 1], dex: d });
+    };
+    for (const list of shapes.values()) list.forEach(addShape);
+    for (const list of priceShapes.values()) list.forEach(addShape);
+    for (const x of paths) addShape(x.path.map(lc));
+
+    // ---------- phase 1: which pools exist, and how deep ----------
     const hopKeys = [...hopSet.keys()];
     const probe: Call[] = [];
     const probeMap: { key: string; tier: number; stable?: boolean; idx: number }[] = [];
@@ -98,19 +122,16 @@ async function main() {
     console.log(`probing ${probe.length} candidate pools across ${candidates.length} dexes...`);
     const probed = await multicall(p, probe);
 
-    const found: { key: string; tier: number; stable?: boolean; pool: string }[] = [];
-    for (const pm of probeMap) {
-        const pool = decode<string>(IFACTORY, "getPair", probed[pm.idx]);
-        if (!isZeroHex(pool)) found.push({ ...pm, pool: lc(pool!) });
-    }
-
-    // A solidly pool address is computed, not looked up, so it may not exist.
+    const found = probeMap
+        .map((pm) => ({ ...pm, pool: lc(decode<string>(IFACTORY, "getPair", probed[pm.idx]) ?? ZERO) }))
+        .filter((f) => !isZeroHex(f.pool));
+    // a solidly pool address is computed, not looked up, so it may not exist
     const codeRes = await multicall(p, found.map((f) => ({ target: f.pool, data: IPOOL.encodeFunctionData("factory") })));
     const live = found.filter((_, i) => alive(codeRes[i]));
-
     const depthRes = await multicall(p, live.map((f) => ({
         target: hopSet.get(f.key)!.a, data: IERC20.encodeFunctionData("balanceOf", [f.pool]),
     })));
+
     const options = new Map<string, HopOption[]>();
     live.forEach((f, i) => {
         const depth = decode<BigNumber>(IERC20, "balanceOf", depthRes[i]) ?? BigNumber.from(0);
@@ -119,74 +140,125 @@ async function main() {
         arr.push({ pool: f.pool, tier: f.tier, stable: f.stable, depth });
         options.set(f.key, arr);
     });
-    for (const arr of options.values()) arr.sort((x, y) => (y.depth!.gt(x.depth!) ? 1 : -1));
+    for (const arr of options.values()) arr.sort((x, y) => (y.depth.gt(x.depth) ? 1 : -1));
     console.log(`${options.size} of ${hopKeys.length} candidate hops have a live pool`);
 
-    // ---------- phase 2: build routes and quote ----------
+    // ---------- phase 2: price every sell token in USD ----------
+    // A test swap should be the size a liquidation actually is, so it is set in
+    // dollars. Price comes from the dexes themselves: quote a sliver of the
+    // deepest pool into the anchor stablecoin, where price impact is negligible,
+    // and read the marginal rate off that.
+    const priceCalls: Call[] = [];
+    const priceMeta: { token: string; route: Route; probeIn: BigNumber; idx: number }[] = [];
+    for (const [t, list] of priceShapes) {
+        let deepest = BigNumber.from(0);
+        for (const d of candidates) for (const shape of list) {
+            const o = options.get(`${d.name}|${shape[0]}|${shape[1]}`);
+            if (o?.[0] && o[0].depth.gt(deepest)) deepest = o[0].depth;
+        }
+        if (deepest.isZero()) continue;
+        const probeIn = deepest.div(10_000);
+        if (probeIn.isZero()) continue;
+        for (const d of candidates) for (const shape of list) {
+            const r = pick(options, d, shape, sym);
+            if (!r) continue;
+            const call = buildQuote(r, probeIn);
+            if (!call) continue;
+            priceMeta.push({ token: t, route: r, probeIn, idx: priceCalls.length });
+            priceCalls.push(call);
+        }
+    }
+    console.log(`pricing ${priceShapes.size} sell tokens with ${priceCalls.length} probe quotes...`);
+    const priced = await multicall(p, priceCalls, QUOTE_CHUNK);
+
+    const usdPrice = new Map<string, number>();
+    priceMeta.forEach((q) => {
+        const outAmt = readQuote(q.route, priced[q.idx]);
+        if (!outAmt || outAmt.isZero()) return;
+        const rate = Number(utils.formatUnits(outAmt, dec(anchor))) / Number(utils.formatUnits(q.probeIn, dec(q.token)));
+        if (!isFinite(rate) || rate <= 0) return;
+        // best quote wins: a stale or shallow pool should not set the price
+        if (rate > (usdPrice.get(q.token) ?? 0)) usdPrice.set(q.token, rate);
+    });
+    usdPrice.set(anchor, 1);
+
+    const notionals = new Map<string, BigNumber>();
+    for (const t of sellTokens) {
+        const price = usdPrice.get(t);
+        if (!price) continue;
+        const amt = toUnits(USD / price, dec(t));
+        if (!amt.isZero()) notionals.set(t, amt);
+    }
+    const unpriced = sellTokens.filter((t) => !notionals.has(t));
+
+    // ---------- phase 3: quote every candidate at the same dollar size ----------
     const quotes: Call[] = [];
     const quoteMeta: { pair: string; route: Route; incumbent: boolean; idx: number }[] = [];
-    const notionals = new Map<string, BigNumber>();
+    const incTiers = new Map<string, { tiers: number[]; stable: boolean[]; factory: string[] }>();
+
+    // registered params for the incumbent route, read straight off the dex contract
+    const incCalls: Call[] = [];
+    const incMap: { pair: string; hop: number; kind: string; idx: number }[] = [];
+    for (const x of paths) {
+        const d = byName.get(x.dex);
+        if (!d || !["uniV3", "cl", "solidly"].includes(d.kind)) continue;
+        const pair = `${lc(x.sellToken)}|${lc(x.buyToken)}`;
+        for (let h = 0; h < x.path.length - 1; h++) {
+            const a = lc(x.path[h]), b = lc(x.path[h + 1]);
+            if (d.kind === "solidly") {
+                incMap.push({ pair, hop: h, kind: "stable", idx: incCalls.length });
+                incCalls.push({ target: d.address, data: IDEX.encodeFunctionData("stable", [a, b]) });
+                incMap.push({ pair, hop: h, kind: "factory", idx: incCalls.length });
+                incCalls.push({ target: d.address, data: IDEX.encodeFunctionData("factory", [a, b]) });
+            } else {
+                const fn = d.kind === "uniV3" ? "pairFee" : "tickSpacing";
+                incMap.push({ pair, hop: h, kind: fn, idx: incCalls.length });
+                incCalls.push({ target: d.address, data: IDEX.encodeFunctionData(fn, [a, b]) });
+            }
+        }
+    }
+    const incRes = await multicall(p, incCalls);
+    for (const im of incMap) {
+        const cur = incTiers.get(im.pair) ?? { tiers: [], stable: [], factory: [] };
+        if (im.kind === "stable") cur.stable[im.hop] = decode<boolean>(IDEX, "stable", incRes[im.idx]) ?? false;
+        else if (im.kind === "factory") cur.factory[im.hop] = decode<string>(IDEX, "factory", incRes[im.idx]) ?? ZERO;
+        else cur.tiers[im.hop] = Number(decode<any>(IDEX, im.kind, incRes[im.idx]) ?? 0);
+        incTiers.set(im.pair, cur);
+    }
 
     for (const x of paths) {
         const pair = `${lc(x.sellToken)}|${lc(x.buyToken)}`;
-        // Size the trade off the deepest first-hop pool anyone offers, so every
-        // candidate is compared on the same, realistic amount.
-        let deepest = BigNumber.from(0);
-        const firstHops = new Set(shapes.get(pair)!.map((sh) => `${sh[0]}|${sh[1]}`));
-        if (x.path.length > 1) firstHops.add(`${lc(x.sellToken)}|${lc(x.path[1])}`);
-        for (const d of candidates) for (const fh of firstHops) {
-            const o = options.get(`${d.name}|${fh}`);
-            if (o?.[0]?.depth?.gt(deepest)) deepest = o[0].depth!;
-        }
-        const notional = deepest.mul(NOTIONAL_BPS).div(10_000);
-        if (notional.isZero()) continue;
-        notionals.set(pair, notional);
+        const notional = notionals.get(lc(x.sellToken));
+        if (!notional) continue;
 
-        const routes: Route[] = [];
-        // the route as registered
         const inc = byName.get(x.dex);
-        if (inc && ["uniV3", "cl", "univ2", "solidly"].includes(inc.kind))
-            routes.push({ dex: inc, tokens: x.path.map(lc), tiers: [], label: `${x.dex} (registered)` });
-        // alternatives: every candidate dex, every shape, deepest tier per hop
-        for (const d of candidates) for (const shape of shapes.get(pair)!) {
-            const picks: HopOption[] = [];
-            for (let h = 0; h < shape.length - 1; h++) {
-                const o = options.get(`${d.name}|${shape[h]}|${shape[h + 1]}`);
-                if (!o?.length) { picks.length = 0; break; }
-                picks.push(o[0]);
-            }
-            if (!picks.length) continue;
-            const same = d.name === x.dex && shape.join(",") === x.path.map(lc).join(",");
-            if (same) continue;
-            routes.push({
-                dex: d, tokens: shape, tiers: picks.map((o) => o.tier), stable: picks.map((o) => !!o.stable),
-                label: `${d.name} ${shape.map(sym).join(">")}`,
-            });
+        if (inc && ["uniV3", "cl", "univ2", "solidly"].includes(inc.kind)) {
+            const t = incTiers.get(pair);
+            const route: Route = {
+                dex: inc, tokens: x.path.map(lc), tiers: t?.tiers ?? [], stable: t?.stable ?? [],
+                label: `${x.dex} (registered)`,
+            };
+            const call = buildQuote(route, notional, t?.factory);
+            if (call) { quoteMeta.push({ pair, route, incumbent: true, idx: quotes.length }); quotes.push(call); }
         }
 
-        for (const r of routes) {
-            const isInc = r.label.endsWith("(registered)");
-            const call = await buildQuote(p, r, notional, isInc, x, options, sym);
+        for (const d of candidates) for (const shape of shapes.get(pair)!) {
+            if (d.name === x.dex && shape.join(",") === x.path.map(lc).join(",")) continue;
+            const r = pick(options, d, shape, sym);
+            if (!r) continue;
+            const call = buildQuote(r, notional);
             if (!call) continue;
-            quoteMeta.push({ pair, route: r, incumbent: isInc, idx: quotes.length });
+            quoteMeta.push({ pair, route: r, incumbent: false, idx: quotes.length });
             quotes.push(call);
         }
     }
 
-    console.log(`quoting ${quotes.length} routes for ${notionals.size} pairs...`);
+    console.log(`quoting ${quotes.length} routes for ${notionals.size} priced tokens...`);
     const quoted = await multicall(p, quotes, QUOTE_CHUNK);
 
     const out = new Map<string, { route: Route; incumbent: boolean; amount: BigNumber }[]>();
     quoteMeta.forEach((q) => {
-        const r = quoted[q.idx];
-        if (!alive(r)) return;
-        let amount: BigNumber | undefined;
-        if (q.route.dex.kind === "uniV3" || q.route.dex.kind === "cl")
-            amount = decode<BigNumber>(IQUOTER, "quoteExactInput", r);
-        else {
-            const amts = decode<BigNumber[]>(q.route.dex.kind === "solidly" ? IAERO_ROUTER : IV2ROUTER, "getAmountsOut", r);
-            amount = amts?.[amts.length - 1];
-        }
+        const amount = readQuote(q.route, quoted[q.idx]);
         if (!amount || amount.isZero()) return;
         const arr = out.get(q.pair) ?? [];
         arr.push({ route: q.route, incumbent: q.incumbent, amount });
@@ -206,48 +278,40 @@ async function main() {
     }
     proposals.sort((a, b) => b.gain - a.gain);
 
-    const [a0, b0] = ["", ""];
-    console.log(`\n=== ${proposals.length} route(s) where an alternative beats the registered one by >= ${MIN_BPS} bps ===`);
-    console.log(`trade size = ${NOTIONAL_BPS} bps of the deepest first-hop pool\n`);
-    if (VERBOSE) {
-        for (const [pair, list] of out) {
-            const [s0, b0] = pair.split("|");
-            console.log(`\n${sym(s0)} > ${sym(b0)}  size ${utils.formatUnits(notionals.get(pair)!, 0)} raw ${sym(s0)}`);
-            for (const r of [...list].sort((a, b) => (b.amount.gt(a.amount) ? 1 : -1)))
-                console.log(`   ${r.amount.toString().padStart(28)}  ${r.route.label}${r.incumbent ? "  <- registered" : ""}`);
-        }
-        console.log("");
+    if (VERBOSE) for (const [pair, list] of out) {
+        const [s0, b0] = pair.split("|");
+        console.log(`\n${sym(s0)} > ${sym(b0)}   $${USD} = ${fmt(notionals.get(s0)!, s0)} ${sym(s0)}`);
+        for (const r of [...list].sort((a, b) => (b.amount.gt(a.amount) ? 1 : -1)))
+            console.log(`   ${fmt(r.amount, b0).padStart(16)} ${sym(b0).padEnd(10)} ${r.route.label}${r.incumbent ? "  <- registered" : ""}`);
     }
 
+    console.log(`\n=== ${proposals.length} route(s) beaten by an alternative on a $${USD} swap (>= ${MIN_BPS} bps) ===\n`);
     for (const pr of proposals) {
         const [s, b] = pr.pair.split("|");
         const x = paths.find((q) => lc(q.sellToken) === s && lc(q.buyToken) === b)!;
-        const size = notionals.get(pr.pair)!;
-        console.log(`${sym(s)} > ${sym(b)}   +${(pr.gain / 100).toFixed(2)}%   on ${fmt(size, s)} ${sym(s)}`);
+        console.log(`${sym(s)} > ${sym(b)}   +${(pr.gain / 100).toFixed(2)}%   on ${fmt(notionals.get(s)!, s)} ${sym(s)}`);
         console.log(`   now  ${x.symbols} [${x.dex}]  ->  ${fmt(pr.inc, b)} ${sym(b)}`);
         console.log(`   alt  ${pr.best.route.label}  ->  ${fmt(pr.best.amount, b)} ${sym(b)}`);
     }
+    if (unpriced.length)
+        console.log(`\n${unpriced.length} sell token(s) could not be priced against ${sym(anchor)}: ${unpriced.map(sym).join(", ")}`);
     if (unquotable.length)
-        console.log(`\n${unquotable.length} pair(s) had no quotable registered route (curve/balancer/erc4626 are not quoted here)`);
+        console.log(`${unquotable.length} pair(s) had no quotable registered route (curve/balancer/erc4626 are not quoted here)`);
 }
 
-async function buildQuote(
-    p: any, r: Route, amountIn: BigNumber, incumbent: boolean, entry: any,
-    options: Map<string, HopOption[]>, sym: (t: string) => string,
-): Promise<Call | undefined> {
+function readQuote(r: Route, res: Res): BigNumber | undefined {
+    if (!alive(res)) return undefined;
+    if (r.dex.kind === "uniV3" || r.dex.kind === "cl") return decode<BigNumber>(IQUOTER, "quoteExactInput", res);
+    const amts = decode<BigNumber[]>(r.dex.kind === "solidly" ? IAERO_ROUTER : IV2ROUTER, "getAmountsOut", res);
+    return amts?.[amts.length - 1];
+}
+
+function buildQuote(r: Route, amountIn: BigNumber, factories?: string[]): Call | undefined {
     const d = r.dex;
     if (d.kind === "uniV3" || d.kind === "cl") {
         if (!d.quoter) return undefined;
-        let tiers = r.tiers;
-        if (incumbent) {
-            // reuse whatever the dex contract has configured for this pair
-            const fn = d.kind === "uniV3" ? "pairFee" : "tickSpacing";
-            const res = await multicall(p, r.tokens.slice(0, -1).map((t, i) => ({
-                target: d.address, data: IDEX.encodeFunctionData(fn, [t, r.tokens[i + 1]]),
-            })));
-            tiers = res.map((x, i) => Number(decode<any>(IDEX, fn, x) ?? d.defaultFee ?? 0));
-            if (tiers.some((t) => !t)) return undefined;
-        }
+        const tiers = r.tokens.slice(1).map((_, i) => r.tiers[i] || d.defaultFee || 0);
+        if (tiers.some((t) => !t)) return undefined;
         const path = encodePacked(r.tokens, tiers, d.kind === "uniV3" ? "uint24" : "int24");
         return { target: d.quoter, data: IQUOTER.encodeFunctionData("quoteExactInput", [path, amountIn]) };
     }
@@ -257,20 +321,9 @@ async function buildQuote(
     }
     if (d.kind === "solidly") {
         if (!d.router) return undefined;
-        const legs = [];
-        for (let i = 0; i < r.tokens.length - 1; i++) {
-            let stable = r.stable?.[i] ?? false;
-            let factory = ZERO;
-            if (incumbent) {
-                const res = await multicall(p, [
-                    { target: d.address, data: IDEX.encodeFunctionData("stable", [r.tokens[i], r.tokens[i + 1]]) },
-                    { target: d.address, data: IDEX.encodeFunctionData("factory", [r.tokens[i], r.tokens[i + 1]]) },
-                ]);
-                stable = decode<boolean>(IDEX, "stable", res[0]) ?? false;
-                factory = decode<string>(IDEX, "factory", res[1]) ?? ZERO;
-            }
-            legs.push({ from: r.tokens[i], to: r.tokens[i + 1], stable, factory });
-        }
+        const legs = r.tokens.slice(0, -1).map((from, i) => ({
+            from, to: r.tokens[i + 1], stable: r.stable?.[i] ?? false, factory: factories?.[i] ?? ZERO,
+        }));
         return { target: d.router, data: IAERO_ROUTER.encodeFunctionData("getAmountsOut", [amountIn, legs]) };
     }
     return undefined;

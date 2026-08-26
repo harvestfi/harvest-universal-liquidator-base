@@ -52,6 +52,8 @@ export interface Manifest {
     owner: string;
     generatedAtBlock: number;
     intermediateTokens: string[];
+    /** token treated as $1 when sizing test swaps */
+    usdAnchor: string;
     tokens: Record<string, string>;
     minLiquidity: Record<string, string>;
     dexes: DexEntry[];
