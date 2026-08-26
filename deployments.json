@@ -29,6 +29,10 @@
     "erc4626": {
       "hex": "0x45f39c8c7e3105201fd8b1288ac068347728af9cfd16f3f08e97171ef955c9ab",
       "address": "0x918911970E944910908C66D4Ee8C233a8A442f51"
+    },
+    "aeroCLV2": {
+      "hex": "0xc3c78acd246f88ec4112c9f320fbb0f3a81d9fc3305cde584c756d4b838e510e",
+      "address": "0x2A9F9c66f2B775f753157d03A6B227487AF1C478"
     }
   }
 }
