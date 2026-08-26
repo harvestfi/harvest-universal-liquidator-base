@@ -108,7 +108,8 @@
             "kind": "univ2",
             "hex": "0x79705f03f271656041ff9e6bcd6b52287f8b442b97983927d0aefa57ed3a1519",
             "address": "0x71368815a89f141278db593f7adc5632b434c341",
-            "poolFactory": "0xFDa619b6d20975be80A10332cD39b9a4b0FAa8BB"
+            "poolFactory": "0xFDa619b6d20975be80A10332cD39b9a4b0FAa8BB",
+            "router": "0x327Df1E6de05895d2ab08513aaDD9313Fe505d86"
         },
         {
             "name": "uniV3",
@@ -116,7 +117,14 @@
             "hex": "0x8f78a54cb77f4634a5bf3dd452ed6a2e33432c73821be59208661199511cd94f",
             "address": "0x3c304e03e8ba4daa23671fffab45288505bf3992",
             "poolFactory": "0x33128a8fC17869897dcE68Ed026d694621f6FDfD",
-            "defaultFee": 500
+            "defaultFee": 500,
+            "quoter": "0x3d4e44Eb1374240CE5F1B871ab261CD16335B76a",
+            "tiers": [
+                100,
+                500,
+                3000,
+                10000
+            ]
         },
         {
             "name": "aerodrome",
@@ -136,7 +144,8 @@
             "kind": "cl",
             "hex": "0x4480c14ab5ba4c36e61cd5b0cf42cd8f12483fbbf0320806b86594b792bc9a8c",
             "address": "0xb90835c4b7b11e49264f7403e07516e9dc789a03",
-            "poolFactory": "0x5e7BB104d84c7CB9B682AaC2F3d509f5F406809A"
+            "poolFactory": "0x5e7BB104d84c7CB9B682AaC2F3d509f5F406809A",
+            "quoter": "0x254cF9E1E6e233aa1AC962CB9B05b2cfeAaE15b0"
         },
         {
             "name": "erc4626",
@@ -149,7 +158,8 @@
             "kind": "cl",
             "hex": "0xc3c78acd246f88ec4112c9f320fbb0f3a81d9fc3305cde584c756d4b838e510e",
             "address": "0x2a9f9c66f2b775f753157d03a6b227487af1c478",
-            "poolFactory": "0xf8f2eB4940CFE7d13603DDDD87f123820Fc061Ef"
+            "poolFactory": "0xf8f2eB4940CFE7d13603DDDD87f123820Fc061Ef",
+            "quoter": "0x514c8B5f54112481E28028F1166Bd78501089259"
         }
     ],
     "paths": [

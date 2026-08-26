@@ -3,7 +3,7 @@ import { BigNumber, utils } from "ethers";
 import deployments from "../deployments.json";
 import {
     Call, DexEntry, IAERO_ROUTER, IBALANCER_DEX, IBVAULT, IDEX, IERC20, IFACTORY, IREGISTRY,
-    Manifest, Res, ZERO, decode, key, lc, loadManifest, multicall, provider,
+    Manifest, Res, ZERO, decode, key, lc, loadManifest, multicall, provider, readChainPaths,
 } from "./utils/registry";
 
 // AUDIT_STRICT=1 makes warnings fail the run too.
@@ -72,48 +72,44 @@ async function main() {
         report("ERROR", "intermediates",
             `chain [${chainInter.map(sym).join(", ")}] != manifest [${wantI.map(sym).join(", ")}] (order is significant)`);
 
+    // ---------- manifest self-consistency ----------
+    // setPath keys off path[0]/path[last], so a hand-edited array that disagrees
+    // with sellToken/buyToken would be written under a different pair entirely.
+    for (const x of m.paths) {
+        if (lc(x.path[0]) !== lc(x.sellToken) || lc(x.path[x.path.length - 1]) !== lc(x.buyToken))
+            report("ERROR", "manifest",
+                `${x.symbols}: path ends (${sym(x.path[0])}, ${sym(x.path[x.path.length - 1])}) do not match sellToken/buyToken (${sym(x.sellToken)}, ${sym(x.buyToken)})`);
+        if (x.path.length < 2)
+            report("ERROR", "manifest", `${x.symbols}: path needs at least 2 tokens`);
+        const expected = x.path.map((t) => sym(t)).join(" > ");
+        if (x.symbols !== expected)
+            report("WARN", "manifest", `symbols "${x.symbols}" is stale, path reads ${expected}`);
+        if (!dexByName.has(x.dex))
+            report("ERROR", "manifest", `${x.symbols}: unknown dex "${x.dex}"`);
+    }
+
     // ---------- paths: manifest vs chain, and chain vs manifest ----------
     const tokens = Object.keys(m.tokens).map(lc);
-    const probes: Call[] = []; const pairs: [string, string][] = [];
-    for (const a of tokens) for (const b of tokens) {
-        if (a === b) continue;
-        pairs.push([a, b]);
-        probes.push({ target: m.registry, data: IREGISTRY.encodeFunctionData("paths", [a, b]) });
+    const { diffs, extra } = await readChainPaths(p, m);
+    const nameOfHex = (h: string) => m.dexes.find((d) => lc(d.hex) === h)?.name ?? h;
+
+    for (const e of extra)
+        report("ERROR", "paths", `on chain but not in manifest: ${sym(e.sellToken)} > ${sym(e.buyToken)} [${nameOfHex(e.dexHex)}]`);
+
+    for (const d of diffs) {
+        const x = d.entry;
+        if (d.status === "missing") report("ERROR", "paths", `in manifest but not on chain: ${x.symbols} [${x.dex}]`);
+        else if (d.status === "dexMismatch")
+            report("ERROR", "paths", `${x.symbols}: chain routes via ${nameOfHex(d.chainDexHex!)}, manifest says ${x.dex}`);
+        else if (d.status === "routeMismatch")
+            report("ERROR", "paths", d.chainRoute
+                ? `${x.symbols}: chain route is ${d.chainRoute.map(sym).join(" > ")}`
+                : `${x.symbols}: getPath no longer resolves as a direct path`);
     }
-    const probed = await multicall(p, probes);
-    const chainPath = new Map<string, string>();
-    probed.forEach((r, i) => {
-        const dex = decode<string>(IREGISTRY, "paths", r);
-        if (dex && !isZero(dex)) chainPath.set(key(...pairs[i]), lc(dex));
-    });
 
-    const inManifest = new Set(m.paths.map((x) => key(x.sellToken, x.buyToken)));
-    for (const [k, dexHex] of chainPath)
-        if (!inManifest.has(k)) {
-            const [a, b] = k.split("|");
-            const name = m.dexes.find((d) => lc(d.hex) === dexHex)?.name ?? dexHex;
-            report("ERROR", "paths", `on chain but not in manifest: ${sym(a)} > ${sym(b)} [${name}]`);
-        }
-
-    const full = await multicall(p, m.paths.map((x) => ({
-        target: m.registry, data: IREGISTRY.encodeFunctionData("getPath", [x.sellToken, x.buyToken]),
-    })));
-    m.paths.forEach((x, i) => {
-        const k = key(x.sellToken, x.buyToken);
-        const dex = dexByName.get(x.dex);
-        const onChain = chainPath.get(k);
-        if (!onChain) { report("ERROR", "paths", `in manifest but not on chain: ${x.symbols} [${x.dex}]`); return; }
-        if (dex && onChain !== lc(dex.hex))
-            report("ERROR", "paths", `${x.symbols}: chain routes via ${m.dexes.find((d) => lc(d.hex) === onChain)?.name ?? onChain}, manifest says ${x.dex}`);
-        const legs = decode<any[]>(IREGISTRY, "getPath", full[i]);
-        const route = legs && legs.length === 1 ? (legs[0].paths as string[]).map(lc) : undefined;
-        if (!route) { report("ERROR", "paths", `${x.symbols}: getPath no longer resolves as a direct path`); return; }
-        if (route.join(",") !== x.path.map(lc).join(","))
-            report("ERROR", "paths", `${x.symbols}: chain route is ${route.map(sym).join(" > ")}`);
-    });
-
+    const listed = new Set(m.paths.map((x) => key(x.sellToken, x.buyToken)));
     for (const x of m.paths)
-        if (!inManifest.has(key(x.buyToken, x.sellToken)))
+        if (!listed.has(key(x.buyToken, x.sellToken)))
             report("WARN", "one-way", `${sym(x.sellToken)} > ${sym(x.buyToken)} [${x.dex}] has no reverse path`);
 
     // ---------- hops: resolve every hop to a real pool ----------

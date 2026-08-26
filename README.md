@@ -101,3 +101,43 @@ Warnings (exit code 1 only with `AUDIT_STRICT=1`):
 - a hop's pool holds less of a token than the `minLiquidity` floor for it
 - a pair has no reverse path
 - a UniV3 hop uses fee 500, which is indistinguishable from never having been set
+
+### Converging the chain to the manifest
+
+`yarn registry:sync` diffs the manifest against the chain and prints the
+transactions that would close the gap — `addDex`, `changeDexAddress`,
+`setIntermediateToken`, `setPath` — each with its target and calldata, ordered so
+that dexes are registered before any path references them.
+
+```shell
+yarn registry:sync                  # dry run, prints calldata
+SYNC_EXECUTE=1 yarn registry:sync   # send them (signer must be the registry owner)
+```
+
+Paths that exist on chain but not in the manifest are reported and cannot be
+fixed: the registry has no `removePath` and `setPath` rejects arrays shorter than
+two, so such a path can only be repointed or adopted into the manifest.
+
+### Proposing better routes
+
+`yarn registry:routes` quotes every registered route against the alternatives and
+reports the pairs where another dex or shape does better.
+
+```shell
+yarn registry:routes
+PROPOSE_VERBOSE=1 yarn registry:routes   # show the trade size and every quote
+```
+
+For each pair it enumerates candidate routes — direct and via each intermediate
+token, on every dex with a live pool — picks the deepest pool per hop, and quotes
+them all with the same input through each dex's own quoter (`QuoterV2` for
+UniV3/CL, `getAmountsOut` for Aerodrome/Baseswap). Trade size is a share of the
+deepest first-hop pool anyone offers, so a route that only works at dust size
+shows up as the loss it is.
+
+- `PROPOSE_NOTIONAL_BPS` trade size as bps of that pool (default `100`, i.e. 1%)
+- `PROPOSE_MIN_BPS` report threshold (default `50`, i.e. 0.5%)
+- `PROPOSE_LIMIT` only look at the first N paths
+
+Curve, Balancer and ERC4626 routes are not quoted, so pairs registered on those
+dexes are skipped rather than compared.
