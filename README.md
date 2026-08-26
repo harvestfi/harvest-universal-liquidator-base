@@ -174,9 +174,12 @@ skipped with a note. `APPLY_SKIP_RECHECK=1` disables that.
 Two things worth knowing:
 
 - A dex's pair config is global — `pairFee`, `tickSpacing` and `stable` are keyed
-  only by the token pair. Changing one to suit a new route also changes every
-  other registered path crossing that hop, so apply lists them as a warning
-  before the transactions. Re-run the proposer afterwards to check none regressed.
+  only by the token pair. Each hop's pool is therefore chosen by quoting every
+  available tier at a realistic size and keeping the best, which makes it the
+  right pool for that hop rather than just for one route. Every other registered
+  path crossing the hop then picks up the improvement for free, with no `setPath`
+  of its own; apply lists those so the effect is visible. The ranking is taken at
+  one trade size, so re-run the proposer afterwards to confirm.
 - On success the manifest is updated to match, since it is the record of intent.
   Run `yarn registry:audit` afterwards to confirm chain and manifest agree.
 

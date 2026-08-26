@@ -98,8 +98,11 @@ async function main() {
 
     // ---------- build ops: dex params first, then the path ----------
     // A dex's pair config is global: pairFee/tickSpacing/stable are keyed only by
-    // the token pair, so changing one silently re-routes every other registered
-    // path that crosses the same hop.
+    // the token pair. The proposer picks each hop's pool by quoting it at a
+    // realistic size, so a change here is an improvement to the hop itself and
+    // every other registered path crossing it gets it for free --- no setPath
+    // needed for those. They are listed so the win is visible, and because the
+    // ranking was taken at one size.
     const usesHop = (dexName: string, a: string, b: string) => m.paths.filter((x) => {
         if (x.dex !== dexName) return false;
         for (let i = 0; i < x.path.length - 1; i++) {
@@ -109,7 +112,7 @@ async function main() {
         return false;
     });
     const beingApplied = new Set(keep.map(({ pr }) => `${lc(pr.sellToken)}|${lc(pr.buyToken)}`));
-    const shared: string[] = [];
+    const alsoImproves: string[] = [];
 
     // factory(0) and the router's defaultFactory select the same pool, so treat
     // them as equal rather than writing a pointless change.
@@ -144,14 +147,14 @@ async function main() {
                 if (have !== h.fee) {
                     ops.push({ kind: "setFee", to: dex.address, what: `${label} ${have} -> ${h.fee}`,
                         data: IDEX.encodeFunctionData("setFee", [h.from, h.to, h.fee]) });
-                    if (others.length) shared.push(`${label} ${have} -> ${h.fee} also affects: ${others.map((x) => x.symbols).join("; ")}`);
+                    if (others.length) alsoImproves.push(`${label} ${have} -> ${h.fee}: also applies to ${others.map((x) => x.symbols).join("; ")}`);
                 }
             } else if (dex.kind === "cl") {
                 const have = Number(decode<any>(IDEX, "tickSpacing", cur[k++]) ?? 0);
                 if (have !== h.tickSpacing) {
                     ops.push({ kind: "setTickSpacing", to: dex.address, what: `${label} ${have} -> ${h.tickSpacing}`,
                         data: IDEX.encodeFunctionData("setTickSpacing", [h.from, h.to, h.tickSpacing]) });
-                    if (others.length) shared.push(`${label} ${have} -> ${h.tickSpacing} also affects: ${others.map((x) => x.symbols).join("; ")}`);
+                    if (others.length) alsoImproves.push(`${label} ${have} -> ${h.tickSpacing}: also applies to ${others.map((x) => x.symbols).join("; ")}`);
                 }
             } else if (dex.kind === "solidly") {
                 const haveStable = decode<boolean>(IDEX, "stable", cur[k++]) ?? false;
@@ -161,7 +164,7 @@ async function main() {
                     const factory = normFactory(haveFactory) === normFactory(h.factory ?? ZERO) ? haveFactory : (h.factory ?? ZERO);
                     ops.push({ kind: "pairSetup", to: dex.address, what: `${label} stable ${haveStable} -> ${!!h.stable}`,
                         data: IDEX.encodeFunctionData("pairSetup", [h.from, h.to, !!h.stable, factory]) });
-                    if (others.length) shared.push(`${label} stable ${haveStable} -> ${!!h.stable} also affects: ${others.map((x) => x.symbols).join("; ")}`);
+                    if (others.length) alsoImproves.push(`${label} stable ${haveStable} -> ${!!h.stable}: also applies to ${others.map((x) => x.symbols).join("; ")}`);
                 }
             }
         }
@@ -171,10 +174,11 @@ async function main() {
         });
     }
 
-    if (shared.length) {
-        console.log(`WARNING: ${shared.length} pair-config change(s) affect paths not being applied:`);
-        for (const w of shared) console.log(`  - ${w}`);
-        console.log("  re-run the proposer afterwards to check those did not regress.\n");
+    if (alsoImproves.length) {
+        console.log(`${alsoImproves.length} pair-config change(s) reach paths beyond the ones being applied.`);
+        console.log("Those paths keep their route and pick up the better pool automatically:");
+        for (const w of alsoImproves) console.log(`  - ${w}`);
+        console.log("  (ranked at one trade size; re-run the proposer afterwards to confirm)\n");
     }
 
     console.log(`${ops.length} transaction(s):\n`);

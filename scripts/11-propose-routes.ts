@@ -73,8 +73,11 @@ async function main() {
         shapes.set(`${lc(x.sellToken)}|${lc(x.buyToken)}`, list);
     }
     const sellTokens = [...new Set(paths.map((x) => lc(x.sellToken)))];
+    // Every token that can be the input side of a hop needs a price, so hop
+    // tiers can be compared at the same realistic size wherever they appear.
+    const priceable = [...new Set([...sellTokens, ...tokenList])];
     const priceShapes = new Map<string, string[][]>();
-    for (const t of sellTokens) {
+    for (const t of priceable) {
         if (t === anchor) continue;
         const list = [[t, anchor]];
         if (t !== weth) list.push([t, weth, anchor]);
@@ -175,6 +178,49 @@ async function main() {
         if (rate > (usdPrice.get(q.token) ?? 0)) usdPrice.set(q.token, rate);
     });
     usdPrice.set(anchor, 1);
+
+    const usdSize = (t: string) => {
+        const price = usdPrice.get(lc(t));
+        return price ? toUnits(USD / price, dec(t)) : BigNumber.from(0);
+    };
+
+    // ---------- phase 2b: pick each hop's tier by quote, not by depth ----------
+    // Which pool is best is a property of the hop, so it is decided once, at $USD
+    // of the hop's input token, and reused by every route that crosses it. That
+    // also means the choice improves every other registered path using that hop.
+    const tierCalls: Call[] = [];
+    const tierMeta: { key: string; opt: HopOption; idx: number }[] = [];
+    for (const [key_, opts] of options) {
+        if (opts.length < 2) continue;
+        const [dexName, a, b] = key_.split("|");
+        const d = byName.get(dexName)!;
+        if (d.kind === "univ2" ) continue;
+        const size = usdSize(a);
+        if (size.isZero()) continue;
+        for (const o of opts) {
+            const r: Route = {
+                dex: d, tokens: [a, b], tiers: [o.tier], stable: [!!o.stable],
+                factories: [ZERO], pools: [o.pool], label: "",
+            };
+            const c = buildQuote(r, size);
+            if (!c) continue;
+            tierMeta.push({ key: key_, opt: o, idx: tierCalls.length });
+            tierCalls.push(c);
+        }
+    }
+    console.log(`ranking ${tierMeta.length} pool variants across ${options.size} hops by quote...`);
+    const tierRes = await multicall(p, tierCalls, QUOTE_CHUNK);
+    const bestOut = new Map<string, BigNumber>();
+    tierMeta.forEach((q) => {
+        const d = byName.get(q.key.split("|")[0])!;
+        const out = readQuote({ dex: d, tokens: [], tiers: [], label: "" }, tierRes[q.idx]);
+        if (!out) return;
+        if (out.gt(bestOut.get(q.key) ?? BigNumber.from(0))) {
+            bestOut.set(q.key, out);
+            const arr = options.get(q.key)!;
+            options.set(q.key, [q.opt, ...arr.filter((x) => x !== q.opt)]);
+        }
+    });
 
     const notionals = new Map<string, BigNumber>();
     for (const t of sellTokens) {
