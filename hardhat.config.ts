@@ -1,6 +1,9 @@
 import "hardhat-gas-reporter"
 import "solidity-coverage";
-import "@nomicfoundation/hardhat-toolbox"
+import "@nomicfoundation/hardhat-chai-matchers"
+import "@nomiclabs/hardhat-ethers"
+import "@typechain/hardhat"
+import "@nomicfoundation/hardhat-verify"
 import { config as dotenvConfig } from "dotenv"
 import { HardhatUserConfig } from "hardhat/config"
 import { NetworksUserConfig } from "hardhat/types"
@@ -43,19 +46,7 @@ const hardhatConfig: HardhatUserConfig = {
     target: "ethers-v5",
   },
   etherscan: {
-    apiKey: {
-      base: `${process.env.BASESCAN_API_KEY}`
-    },
-    customChains: [
-      {
-        network: "base",
-        chainId: 8453,
-        urls: {
-          apiURL: "https://api.basescan.org/api",
-          browserURL: "https://basescan.com"
-        }
-      }
-    ]
+    apiKey: `${process.env.ETHERSCAN_API_KEY}`
   },
   gasReporter: {
     enabled: (process.env.REPORT_GAS) ? true : false
