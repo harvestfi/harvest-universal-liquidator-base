@@ -124,8 +124,8 @@ two, so such a path can only be repointed or adopted into the manifest.
 reports the pairs where another dex or shape does better.
 
 ```shell
-yarn registry:routes                 # $100 test swaps
-PROPOSE_USD=1000 yarn registry:routes
+yarn registry:routes                # $1000 test swaps
+PROPOSE_USD=100 yarn registry:routes
 ```
 
 For each pair it enumerates candidate routes — direct and via each intermediate
@@ -140,7 +140,7 @@ sliver of its deepest pool into `usdAnchor` (USDC), where price impact is
 negligible, and reading the marginal rate off that. A sell token with no route to
 the anchor is reported rather than guessed at.
 
-- `PROPOSE_USD` value of the test swap (default `100`)
+- `PROPOSE_USD` value of the test swap (default `1000`)
 - `PROPOSE_MIN_BPS` report threshold (default `50`, i.e. 0.5%)
 - `PROPOSE_LIMIT` only look at the first N paths
 - `PROPOSE_VERBOSE=1` print the trade size and every quote

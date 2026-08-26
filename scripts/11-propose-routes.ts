@@ -8,11 +8,11 @@ import {
     decode, isZeroHex, lc, loadManifest, multicall, provider, readQuote,
 } from "./utils/registry";
 
-// PROPOSE_USD      value of the test swap in USD (default 100)
+// PROPOSE_USD      value of the test swap in USD (default 1000)
 // PROPOSE_MIN_BPS  only report improvements above this (default 0.5%)
 // PROPOSE_LIMIT    only look at the first N paths
 // PROPOSE_VERBOSE  print the trade size and every quote
-const USD = Number(process.env.PROPOSE_USD ?? 100);
+const USD = Number(process.env.PROPOSE_USD ?? 1000);
 const MIN_BPS = Number(process.env.PROPOSE_MIN_BPS ?? 50);
 const LIMIT = process.env.PROPOSE_LIMIT ? Number(process.env.PROPOSE_LIMIT) : undefined;
 const VERBOSE = process.env.PROPOSE_VERBOSE === "1";
