@@ -7,4 +7,5 @@ library Addresses {
     address constant baseSwapRouter = 0x327Df1E6de05895d2ab08513aaDD9313Fe505d86;
     address constant uniswapV3Router = 0x2626664c2603336E57B271c5C0b26F421741e481;
     address constant aeroCLRouter = 0xBE6D8f0d05cC4be24d5167a3eF062215bE6D18a5;
+    address constant aeroCLV2Router = 0x698Cb2b6dd822994581fEa6eA4Fc755d1363A92F;
 }
