@@ -1,8 +1,11 @@
 import { BigNumber, utils } from "ethers";
 
+import fs from "fs";
+
 import {
-    Call, DexEntry, IAERO_ROUTER, ICLFACTORY, IDEX, IERC20, IFACTORY, IQUOTER, IV2ROUTER,
-    Manifest, QUOTE_CHUNK, Res, ZERO, decode, isZeroHex, lc, loadManifest, multicall, provider,
+    Call, DexEntry, IAERO_ROUTER, ICLFACTORY, IDEX, IERC20, IFACTORY, Manifest, PROPOSALS,
+    Proposal, ProposalFile, ProposalHop, QUOTE_CHUNK, Route, ZERO, alive, buildQuote,
+    decode, isZeroHex, lc, loadManifest, multicall, provider, readQuote,
 } from "./utils/registry";
 
 // PROPOSE_USD      value of the test swap in USD (default 100)
@@ -15,17 +18,8 @@ const LIMIT = process.env.PROPOSE_LIMIT ? Number(process.env.PROPOSE_LIMIT) : un
 const VERBOSE = process.env.PROPOSE_VERBOSE === "1";
 
 const IPOOL = new utils.Interface(["function factory() view returns (address)"]);
-const alive = (r: Res) => r.success && r.data !== "0x";
 
-interface Route { dex: DexEntry; tokens: string[]; tiers: number[]; stable?: boolean[]; label: string }
 interface HopOption { pool: string; tier: number; stable?: boolean; depth: BigNumber }
-
-function encodePacked(tokens: string[], tiers: number[], type: "uint24" | "int24") {
-    const types: string[] = ["address"];
-    const values: any[] = [tokens[0]];
-    for (let i = 1; i < tokens.length; i++) { types.push(type, "address"); values.push(tiers[i - 1], tokens[i]); }
-    return utils.solidityPack(types, values);
-}
 
 function toUnits(x: number, dec: number): BigNumber {
     if (!isFinite(x) || x <= 0) return BigNumber.from(0);
@@ -42,7 +36,7 @@ function pick(options: Map<string, HopOption[]>, dex: DexEntry, shape: string[],
     }
     return {
         dex, tokens: shape, tiers: picks.map((o) => o.tier), stable: picks.map((o) => !!o.stable),
-        label: `${dex.name} ${shape.map(sym).join(">")}`,
+        pools: picks.map((o) => o.pool), label: `${dex.name} ${shape.map(sym).join(">")}`,
     };
 }
 
@@ -238,7 +232,8 @@ async function main() {
                 dex: inc, tokens: x.path.map(lc), tiers: t?.tiers ?? [], stable: t?.stable ?? [],
                 label: `${x.dex} (registered)`,
             };
-            const call = buildQuote(route, notional, t?.factory);
+            route.factories = t?.factory;
+            const call = buildQuote(route, notional);
             if (call) { quoteMeta.push({ pair, route, incumbent: true, idx: quotes.length }); quotes.push(call); }
         }
 
@@ -293,40 +288,40 @@ async function main() {
         console.log(`   now  ${x.symbols} [${x.dex}]  ->  ${fmt(pr.inc, b)} ${sym(b)}`);
         console.log(`   alt  ${pr.best.route.label}  ->  ${fmt(pr.best.amount, b)} ${sym(b)}`);
     }
+    const file: ProposalFile = {
+        network: m.network, registry: m.registry, generatedAtBlock: await p.getBlockNumber(),
+        usd: USD, minBps: MIN_BPS,
+        sizes: Object.fromEntries([...notionals].map(([t, v]) => [t, v.toString()])),
+        proposals: proposals.map((pr) => {
+            const [s0, b0] = pr.pair.split("|");
+            const x = paths.find((q) => lc(q.sellToken) === s0 && lc(q.buyToken) === b0)!;
+            const r: Route = pr.best.route;
+            const hops: ProposalHop[] = r.tokens.slice(0, -1).map((from, i) => {
+                const hop: ProposalHop = { from, to: r.tokens[i + 1], pool: r.pools?.[i] ?? ZERO };
+                if (r.dex.kind === "uniV3") hop.fee = r.tiers[i];
+                else if (r.dex.kind === "cl") hop.tickSpacing = r.tiers[i];
+                else if (r.dex.kind === "solidly") { hop.stable = r.stable?.[i] ?? false; hop.factory = r.factories?.[i] ?? ZERO; }
+                return hop;
+            });
+            return {
+                sellToken: s0, buyToken: b0, gainBps: pr.gain,
+                current: { dex: x.dex, path: x.path.map(lc), symbols: x.symbols, out: pr.inc.toString() },
+                proposed: {
+                    dex: r.dex.name, kind: r.dex.kind, path: r.tokens,
+                    symbols: r.tokens.map(sym).join(" > "), out: pr.best.amount.toString(), hops,
+                },
+            } as Proposal;
+        }),
+    };
+    const outPath = process.env.PROPOSE_OUT ?? PROPOSALS;
+    fs.writeFileSync(outPath, JSON.stringify(file, null, 4) + "\n");
+    console.log(`\nwrote ${file.proposals.length} proposal(s) to ${outPath}`);
+    console.log("review it, then apply with: yarn registry:apply");
+
     if (unpriced.length)
         console.log(`\n${unpriced.length} sell token(s) could not be priced against ${sym(anchor)}: ${unpriced.map(sym).join(", ")}`);
     if (unquotable.length)
         console.log(`${unquotable.length} pair(s) had no quotable registered route (curve/balancer/erc4626 are not quoted here)`);
-}
-
-function readQuote(r: Route, res: Res): BigNumber | undefined {
-    if (!alive(res)) return undefined;
-    if (r.dex.kind === "uniV3" || r.dex.kind === "cl") return decode<BigNumber>(IQUOTER, "quoteExactInput", res);
-    const amts = decode<BigNumber[]>(r.dex.kind === "solidly" ? IAERO_ROUTER : IV2ROUTER, "getAmountsOut", res);
-    return amts?.[amts.length - 1];
-}
-
-function buildQuote(r: Route, amountIn: BigNumber, factories?: string[]): Call | undefined {
-    const d = r.dex;
-    if (d.kind === "uniV3" || d.kind === "cl") {
-        if (!d.quoter) return undefined;
-        const tiers = r.tokens.slice(1).map((_, i) => r.tiers[i] || d.defaultFee || 0);
-        if (tiers.some((t) => !t)) return undefined;
-        const path = encodePacked(r.tokens, tiers, d.kind === "uniV3" ? "uint24" : "int24");
-        return { target: d.quoter, data: IQUOTER.encodeFunctionData("quoteExactInput", [path, amountIn]) };
-    }
-    if (d.kind === "univ2") {
-        if (!d.router) return undefined;
-        return { target: d.router, data: IV2ROUTER.encodeFunctionData("getAmountsOut", [amountIn, r.tokens]) };
-    }
-    if (d.kind === "solidly") {
-        if (!d.router) return undefined;
-        const legs = r.tokens.slice(0, -1).map((from, i) => ({
-            from, to: r.tokens[i + 1], stable: r.stable?.[i] ?? false, factory: factories?.[i] ?? ZERO,
-        }));
-        return { target: d.router, data: IAERO_ROUTER.encodeFunctionData("getAmountsOut", [amountIn, legs]) };
-    }
-    return undefined;
 }
 
 main().catch((error) => {

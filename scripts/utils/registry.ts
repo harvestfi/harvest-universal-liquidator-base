@@ -1,5 +1,5 @@
 import { ethers } from "hardhat";
-import { providers, utils } from "ethers";
+import { BigNumber, providers, utils } from "ethers";
 import fs from "fs";
 import path from "path";
 
@@ -87,6 +87,10 @@ export const IDEX = new utils.Interface([
     "function stable(address,address) view returns (bool)",
     "function nTokens(address) view returns (uint256)",
     "function router() view returns (address)",
+    "function owner() view returns (address)",
+    "function setFee(address,address,uint24)",
+    "function setTickSpacing(address,address,int24)",
+    "function pairSetup(address,address,bool,address)",
 ]);
 
 // pool(address,address) returns bytes32 on BalancerDex and address on CurveDex.
@@ -177,6 +181,88 @@ export function loadManifest(): Manifest {
 
 export function saveManifest(m: Manifest) {
     fs.writeFileSync(MANIFEST, JSON.stringify(m, null, 4) + "\n");
+}
+
+export const PROPOSALS = path.resolve(__dirname, "../../helpers/proposals.json");
+
+/** A hop of a proposed route, with the dex-side params it was quoted with. */
+export interface ProposalHop {
+    from: string;
+    to: string;
+    pool: string;
+    fee?: number;
+    tickSpacing?: number;
+    stable?: boolean;
+    factory?: string;
+}
+
+export interface Proposal {
+    sellToken: string;
+    buyToken: string;
+    gainBps: number;
+    current: { dex: string; path: string[]; symbols: string; out: string };
+    proposed: { dex: string; kind: DexKind; path: string[]; symbols: string; out: string; hops: ProposalHop[] };
+}
+
+export interface ProposalFile {
+    network: string;
+    registry: string;
+    generatedAtBlock: number;
+    usd: number;
+    minBps: number;
+    sizes: Record<string, string>;
+    proposals: Proposal[];
+}
+
+/** One concrete way to get from a to b: a dex, a token route, and params per hop. */
+export interface Route {
+    dex: DexEntry;
+    tokens: string[];
+    tiers: number[];
+    stable?: boolean[];
+    pools?: string[];
+    factories?: string[];
+    label: string;
+}
+
+export const alive = (r: Res) => r.success && r.data !== "0x";
+
+export function encodePath(tokens: string[], tiers: number[], type: "uint24" | "int24") {
+    const types: string[] = ["address"];
+    const values: any[] = [tokens[0]];
+    for (let i = 1; i < tokens.length; i++) { types.push(type, "address"); values.push(tiers[i - 1], tokens[i]); }
+    return utils.solidityPack(types, values);
+}
+
+/** Encode an amountIn quote for a route, or undefined when the dex has no quoter. */
+export function buildQuote(r: Route, amountIn: BigNumber): Call | undefined {
+    const d = r.dex;
+    if (d.kind === "uniV3" || d.kind === "cl") {
+        if (!d.quoter) return undefined;
+        const tiers = r.tokens.slice(1).map((_, i) => r.tiers[i] || d.defaultFee || 0);
+        if (tiers.some((t) => !t)) return undefined;
+        const path = encodePath(r.tokens, tiers, d.kind === "uniV3" ? "uint24" : "int24");
+        return { target: d.quoter, data: IQUOTER.encodeFunctionData("quoteExactInput", [path, amountIn]) };
+    }
+    if (d.kind === "univ2") {
+        if (!d.router) return undefined;
+        return { target: d.router, data: IV2ROUTER.encodeFunctionData("getAmountsOut", [amountIn, r.tokens]) };
+    }
+    if (d.kind === "solidly") {
+        if (!d.router) return undefined;
+        const legs = r.tokens.slice(0, -1).map((from, i) => ({
+            from, to: r.tokens[i + 1], stable: r.stable?.[i] ?? false, factory: r.factories?.[i] ?? ZERO,
+        }));
+        return { target: d.router, data: IAERO_ROUTER.encodeFunctionData("getAmountsOut", [amountIn, legs]) };
+    }
+    return undefined;
+}
+
+export function readQuote(r: Route, res: Res): BigNumber | undefined {
+    if (!alive(res)) return undefined;
+    if (r.dex.kind === "uniV3" || r.dex.kind === "cl") return decode<BigNumber>(IQUOTER, "quoteExactInput", res);
+    const amts = decode<BigNumber[]>(r.dex.kind === "solidly" ? IAERO_ROUTER : IV2ROUTER, "getAmountsOut", res);
+    return amts?.[amts.length - 1];
 }
 
 export const lc = (a: string) => a.toLowerCase();

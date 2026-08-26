@@ -147,3 +147,39 @@ the anchor is reported rather than guessed at.
 
 Curve, Balancer and ERC4626 routes are not quoted, so pairs registered on those
 dexes are skipped rather than compared.
+
+### Applying proposals
+
+`yarn registry:routes` writes what it found to `helpers/proposals.json` (override
+with `PROPOSE_OUT`). `yarn registry:apply` reads that file back and turns the
+proposals into transactions.
+
+```shell
+yarn registry:routes                                  # write proposals.json
+yarn registry:apply                                   # dry run, prints calldata
+APPLY_ONLY="AERO>GB,AERO>SEAM" yarn registry:apply    # just those two
+APPLY_EXECUTE=1 yarn registry:apply                   # send them
+```
+
+A proposal is more than a `setPath`: the target dex needs the same pair config
+the quote was taken with, or the new route lands in a different pool than the one
+that won. So each proposal records the pool and params per hop, and apply emits
+the `setFee` / `setTickSpacing` / `pairSetup` calls needed to match before the
+`setPath` that uses them.
+
+Every proposal is **re-quoted before anything is sent**, because prices move
+between proposing and applying; one that no longer clears the threshold is
+skipped with a note. `APPLY_SKIP_RECHECK=1` disables that.
+
+Two things worth knowing:
+
+- A dex's pair config is global — `pairFee`, `tickSpacing` and `stable` are keyed
+  only by the token pair. Changing one to suit a new route also changes every
+  other registered path crossing that hop, so apply lists them as a warning
+  before the transactions. Re-run the proposer afterwards to check none regressed.
+- On success the manifest is updated to match, since it is the record of intent.
+  Run `yarn registry:audit` afterwards to confirm chain and manifest agree.
+
+- `APPLY_ONLY` comma separated indices or `SELL>BUY` symbols (default: all)
+- `APPLY_MIN_BPS` re-check threshold (default: the file's own `minBps`)
+- `APPLY_IN` read a different proposals file
