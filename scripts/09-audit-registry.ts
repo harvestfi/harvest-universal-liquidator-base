@@ -1,0 +1,272 @@
+import { BigNumber, utils } from "ethers";
+
+import deployments from "../deployments.json";
+import {
+    Call, DexEntry, IAERO_ROUTER, IBALANCER_DEX, IBVAULT, IDEX, IERC20, IFACTORY, IREGISTRY,
+    Manifest, Res, ZERO, decode, key, lc, loadManifest, multicall, provider,
+} from "./utils/registry";
+
+// AUDIT_STRICT=1 makes warnings fail the run too.
+const STRICT = process.env.AUDIT_STRICT === "1";
+
+const IPOOL = new utils.Interface(["function factory() view returns (address)"]);
+const IUL = new utils.Interface(["function pathRegistry() view returns (address)"]);
+
+type Sev = "ERROR" | "WARN";
+const findings: { sev: Sev; group: string; msg: string }[] = [];
+const report = (sev: Sev, group: string, msg: string) => findings.push({ sev, group, msg });
+
+const isZero = (a?: string) => !a || /^0x0+$/.test(a);
+const units = (v: BigNumber, d: number) => Number(utils.formatUnits(v, d));
+
+interface Hop { pathIdx: number; i: number; a: string; b: string; dex: DexEntry; pool?: string; note?: string; ts?: number }
+
+async function main() {
+    const p = provider();
+    const m: Manifest = loadManifest();
+    const sym = (t: string) => m.tokens[lc(t)] ?? t.slice(0, 8);
+    const dexByName = new Map(m.dexes.map((d) => [d.name, d]));
+
+    // ---------- wiring ----------
+    const head = await multicall(p, [
+        { target: m.registry, data: IREGISTRY.encodeFunctionData("getAllDexes") },
+        { target: m.registry, data: IREGISTRY.encodeFunctionData("getAllIntermediateTokens") },
+        { target: m.registry, data: IREGISTRY.encodeFunctionData("owner") },
+        { target: m.universalLiquidator, data: IUL.encodeFunctionData("pathRegistry") },
+    ]);
+    const chainDexes = (decode<string[]>(IREGISTRY, "getAllDexes", head[0]) ?? []).map(lc);
+    const chainInter = (decode<string[]>(IREGISTRY, "getAllIntermediateTokens", head[1]) ?? []).map(lc);
+    const owner = lc(decode<string>(IREGISTRY, "owner", head[2]) ?? ZERO);
+    const wired = lc(decode<string>(IUL, "pathRegistry", head[3]) ?? ZERO);
+
+    if (wired !== lc(m.registry))
+        report("ERROR", "wiring", `UniversalLiquidator.pathRegistry is ${wired}, manifest registry is ${lc(m.registry)}`);
+    if (owner !== lc(m.owner))
+        report("ERROR", "wiring", `registry owner is ${owner}, manifest says ${lc(m.owner)}`);
+
+    // ---------- dexes ----------
+    const addrs = await multicall(p, chainDexes.map((h) => ({
+        target: m.registry, data: IREGISTRY.encodeFunctionData("dexesInfo", [h]),
+    })));
+    const chainDexAddr = new Map<string, string>();
+    chainDexes.forEach((h, i) => chainDexAddr.set(h, lc(decode<string>(IREGISTRY, "dexesInfo", addrs[i]) ?? ZERO)));
+
+    const depByHex = new Map(Object.entries(deployments.Dexes).map(([n, d]) => [lc(d.hex), { n, a: lc(d.address) }]));
+    for (const d of m.dexes) {
+        const onChain = chainDexAddr.get(lc(d.hex));
+        if (onChain === undefined) { report("ERROR", "dexes", `${d.name} is in the manifest but not registered on chain`); continue; }
+        if (isZero(onChain)) report("ERROR", "dexes", `${d.name} resolves to address(0) — every path using it reverts`);
+        else if (onChain !== lc(d.address)) report("ERROR", "dexes", `${d.name} drift: chain ${onChain}, manifest ${lc(d.address)}`);
+        const dep = depByHex.get(lc(d.hex));
+        if (!dep) report("WARN", "dexes", `${d.name} is not recorded in deployments.json`);
+        else if (dep.a !== onChain) report("WARN", "dexes", `${d.name} deployments.json says ${dep.a}, chain says ${onChain}`);
+        if (d.kind === "unknown") report("WARN", "dexes", `${d.name} has kind "unknown" — its hops cannot be checked`);
+    }
+    for (const h of chainDexes)
+        if (!m.dexes.some((d) => lc(d.hex) === h))
+            report("ERROR", "dexes", `${h} is registered on chain but missing from the manifest`);
+
+    // ---------- intermediate tokens (order decides routing) ----------
+    const wantI = m.intermediateTokens.map(lc);
+    if (chainInter.join(",") !== wantI.join(","))
+        report("ERROR", "intermediates",
+            `chain [${chainInter.map(sym).join(", ")}] != manifest [${wantI.map(sym).join(", ")}] (order is significant)`);
+
+    // ---------- paths: manifest vs chain, and chain vs manifest ----------
+    const tokens = Object.keys(m.tokens).map(lc);
+    const probes: Call[] = []; const pairs: [string, string][] = [];
+    for (const a of tokens) for (const b of tokens) {
+        if (a === b) continue;
+        pairs.push([a, b]);
+        probes.push({ target: m.registry, data: IREGISTRY.encodeFunctionData("paths", [a, b]) });
+    }
+    const probed = await multicall(p, probes);
+    const chainPath = new Map<string, string>();
+    probed.forEach((r, i) => {
+        const dex = decode<string>(IREGISTRY, "paths", r);
+        if (dex && !isZero(dex)) chainPath.set(key(...pairs[i]), lc(dex));
+    });
+
+    const inManifest = new Set(m.paths.map((x) => key(x.sellToken, x.buyToken)));
+    for (const [k, dexHex] of chainPath)
+        if (!inManifest.has(k)) {
+            const [a, b] = k.split("|");
+            const name = m.dexes.find((d) => lc(d.hex) === dexHex)?.name ?? dexHex;
+            report("ERROR", "paths", `on chain but not in manifest: ${sym(a)} > ${sym(b)} [${name}]`);
+        }
+
+    const full = await multicall(p, m.paths.map((x) => ({
+        target: m.registry, data: IREGISTRY.encodeFunctionData("getPath", [x.sellToken, x.buyToken]),
+    })));
+    m.paths.forEach((x, i) => {
+        const k = key(x.sellToken, x.buyToken);
+        const dex = dexByName.get(x.dex);
+        const onChain = chainPath.get(k);
+        if (!onChain) { report("ERROR", "paths", `in manifest but not on chain: ${x.symbols} [${x.dex}]`); return; }
+        if (dex && onChain !== lc(dex.hex))
+            report("ERROR", "paths", `${x.symbols}: chain routes via ${m.dexes.find((d) => lc(d.hex) === onChain)?.name ?? onChain}, manifest says ${x.dex}`);
+        const legs = decode<any[]>(IREGISTRY, "getPath", full[i]);
+        const route = legs && legs.length === 1 ? (legs[0].paths as string[]).map(lc) : undefined;
+        if (!route) { report("ERROR", "paths", `${x.symbols}: getPath no longer resolves as a direct path`); return; }
+        if (route.join(",") !== x.path.map(lc).join(","))
+            report("ERROR", "paths", `${x.symbols}: chain route is ${route.map(sym).join(" > ")}`);
+    });
+
+    for (const x of m.paths)
+        if (!inManifest.has(key(x.buyToken, x.sellToken)))
+            report("WARN", "one-way", `${sym(x.sellToken)} > ${sym(x.buyToken)} [${x.dex}] has no reverse path`);
+
+    // ---------- hops: resolve every hop to a real pool ----------
+    const hops: Hop[] = [];
+    m.paths.forEach((x, pathIdx) => {
+        const dex = dexByName.get(x.dex);
+        if (!dex || dex.kind === "erc4626" || dex.kind === "unknown") return;
+        for (let i = 0; i < x.path.length - 1; i++)
+            hops.push({ pathIdx, i, a: lc(x.path[i]), b: lc(x.path[i + 1]), dex });
+    });
+
+    const paramCalls: Call[] = hops.map((h) => {
+        const t = h.dex.address;
+        switch (h.dex.kind) {
+            case "cl":       return { target: t, data: IDEX.encodeFunctionData("tickSpacing", [h.a, h.b]) };
+            case "uniV3":    return { target: t, data: IDEX.encodeFunctionData("pairFee", [h.a, h.b]) };
+            case "solidly":  return { target: t, data: IDEX.encodeFunctionData("stable", [h.a, h.b]) };
+            case "curve":
+            case "balancer": return { target: t, data: IDEX.encodeFunctionData("pool", [h.a, h.b]) };
+            default:         return { target: t, data: IDEX.encodeFunctionData("router") };
+        }
+    });
+    const extraCalls: Call[] = hops.map((h) => h.dex.kind === "solidly"
+        ? { target: h.dex.address, data: IDEX.encodeFunctionData("factory", [h.a, h.b]) }
+        : { target: h.dex.address, data: IDEX.encodeFunctionData("router") });
+    const [params, extras] = [await multicall(p, paramCalls), await multicall(p, extraCalls)];
+
+    const unreadable = new Set<Hop>();
+    const readable = (r: Res) => r.success && r.data !== "0x";
+
+    const resolveCalls: Call[] = hops.map((h, i) => {
+        const r = params[i];
+        if (h.dex.kind !== "univ2" && !readable(r)) unreadable.add(h);
+        switch (h.dex.kind) {
+            case "cl": {
+                const ts = decode<number>(IDEX, "tickSpacing", r) ?? 0;
+                h.ts = ts;
+                h.note = `tickSpacing ${ts}`;
+                if (!ts) return { target: h.dex.address, data: IDEX.encodeFunctionData("router") };
+                return { target: h.dex.poolFactory!, data: IFACTORY.encodeFunctionData("getPool(address,address,int24)", [h.a, h.b, ts]) };
+            }
+            case "uniV3": {
+                const fee = decode<number>(IDEX, "pairFee", r) ?? h.dex.defaultFee!;
+                h.note = `fee ${fee}`;
+                return { target: h.dex.poolFactory!, data: IFACTORY.encodeFunctionData("getPool(address,address,uint24)", [h.a, h.b, fee]) };
+            }
+            case "univ2":
+                return { target: h.dex.poolFactory!, data: IFACTORY.encodeFunctionData("getPair", [h.a, h.b]) };
+            case "solidly": {
+                const stable = decode<boolean>(IDEX, "stable", r) ?? false;
+                // factory(0) is legitimate: the Aerodrome router falls back to its default factory.
+                const factory = decode<string>(IDEX, "factory", extras[i]) ?? ZERO;
+                h.note = `stable ${stable}`;
+                return { target: h.dex.router!, data: IAERO_ROUTER.encodeFunctionData("poolFor", [h.a, h.b, stable, factory]) };
+            }
+            case "curve": {
+                const pool = decode<string>(IDEX, "pool", r) ?? ZERO;
+                h.pool = lc(pool);
+                return { target: h.dex.address, data: IDEX.encodeFunctionData("nTokens", [pool]) };
+            }
+            case "balancer": {
+                const id = decode<string>(IBALANCER_DEX, "pool", r);
+                h.note = id;
+                return { target: h.dex.vault!, data: IBVAULT.encodeFunctionData("getPoolTokens", [id ?? utils.hexZeroPad("0x", 32)]) };
+            }
+            default:
+                return { target: h.dex.address, data: IDEX.encodeFunctionData("router") };
+        }
+    });
+    const resolved = await multicall(p, resolveCalls);
+
+    const bad = (h: Hop, why: string) =>
+        report("ERROR", "hops", `${m.paths[h.pathIdx].symbols} [${h.dex.name}] hop${h.i} ${sym(h.a)}/${sym(h.b)}: ${why}`);
+
+    const balCalls: Call[] = [];
+    const balOf: { hop: Hop; token: string; idx: number }[] = [];
+    hops.forEach((h, i) => {
+        const r = resolved[i];
+        if (unreadable.has(h))
+            return bad(h, `cannot read pair config from ${h.dex.name} at ${h.dex.address}`);
+        if (h.dex.kind === "curve") {
+            if (isZero(h.pool)) return bad(h, "pool not set");
+            if (!decode<BigNumber>(IDEX, "nTokens", r)?.gt(0)) return bad(h, `nTokens not set for pool ${h.pool}`);
+        } else if (h.dex.kind === "balancer") {
+            if (!h.note || isZero(h.note)) return bad(h, "poolId not set");
+            if (!r.success) return bad(h, `poolId ${h.note} is not registered in the vault`);
+            return; // vault balances are read below from getPoolTokens
+        } else if (h.dex.kind === "cl" && !h.ts) {
+            return bad(h, "tickSpacing not set (0)");
+        } else {
+            const pool = decode<string>(IFACTORY, "getPair", r);
+            if (isZero(pool)) return bad(h, `no pool (${h.note})`);
+            h.pool = lc(pool!);
+        }
+        for (const t of [h.a, h.b]) {
+            balOf.push({ hop: h, token: t, idx: balCalls.length });
+            balCalls.push({ target: t, data: IERC20.encodeFunctionData("balanceOf", [h.pool!]) });
+        }
+        balOf.push({ hop: h, token: "", idx: balCalls.length });
+        balCalls.push({ target: h.pool!, data: IPOOL.encodeFunctionData("factory") });
+    });
+    const bals = await multicall(p, balCalls);
+
+    const decCalls = tokens.map((t) => ({ target: t, data: IERC20.encodeFunctionData("decimals") }));
+    const decs = await multicall(p, decCalls);
+    const DEC = new Map<string, number>();
+    tokens.forEach((t, i) => DEC.set(t, decode<number>(IERC20, "decimals", decs[i]) ?? 18));
+
+    const seen = new Set<Hop>();
+    for (const { hop, token, idx } of balOf) {
+        if (token === "") {
+            const probe = bals[idx];
+            if ((!probe.success || probe.data === "0x") && !seen.has(hop)) {
+                seen.add(hop);
+                bad(hop, `resolved pool ${hop.pool} has no code (${hop.note})`);
+            }
+            continue;
+        }
+        const floor = m.minLiquidity[token];
+        if (!floor) continue;
+        const raw = decode<BigNumber>(IERC20, "balanceOf", bals[idx]);
+        if (!raw) continue;
+        const have = units(raw, DEC.get(token) ?? 18);
+        if (have < Number(floor))
+            report("WARN", "liquidity",
+                `${m.paths[hop.pathIdx].symbols} [${hop.dex.name}] hop${hop.i} ${sym(hop.a)}/${sym(hop.b)}: pool holds ${have.toFixed(4)} ${sym(token)} (floor ${floor})`);
+    }
+
+    for (const h of hops)
+        if (h.dex.kind === "uniV3" && h.note === `fee ${h.dex.defaultFee}`)
+            report("WARN", "implicit-fee",
+                `${m.paths[h.pathIdx].symbols} hop${h.i} ${sym(h.a)}/${sym(h.b)} uses fee ${h.dex.defaultFee} — indistinguishable from unset`);
+
+    // ---------- output ----------
+    const errors = findings.filter((f) => f.sev === "ERROR");
+    const warns = findings.filter((f) => f.sev === "WARN");
+    console.log(`registry ${m.registry} @ block ${await p.getBlockNumber()}`);
+    console.log(`  ${m.dexes.length} dexes | ${m.paths.length} paths | ${hops.length} hops | ${tokens.length} tokens\n`);
+    for (const sev of ["ERROR", "WARN"] as Sev[]) {
+        const list = findings.filter((f) => f.sev === sev);
+        const groups = [...new Set(list.map((f) => f.group))];
+        for (const g of groups) {
+            const items = list.filter((f) => f.group === g);
+            console.log(`${sev} ${g} (${items.length})`);
+            for (const f of items.slice(0, 40)) console.log(`  - ${f.msg}`);
+            if (items.length > 40) console.log(`  ... and ${items.length - 40} more`);
+        }
+    }
+    console.log(`\n${errors.length} error(s), ${warns.length} warning(s)`);
+    if (errors.length || (STRICT && warns.length)) process.exitCode = 1;
+}
+
+main().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+});
