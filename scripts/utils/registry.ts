@@ -133,9 +133,30 @@ const IMULTICALL = new utils.Interface([
 export interface Call { target: string; data: string }
 export interface Res { success: boolean; data: string }
 
+// The endpoint hardhat.config uses for `mainnet` throttles hard enough that the
+// quoting passes crawl, so say so once rather than letting a run look hung.
+const THROTTLED = "developer-access-mainnet.base.org";
+let warned = false;
+
 export function provider(): providers.Provider {
     const url = process.env.REGISTRY_RPC_URL;
-    return url ? new providers.JsonRpcProvider(url) : ethers.provider;
+    if (url) return new providers.JsonRpcProvider(url);
+    const fallback: any = ethers.provider;
+    if (!warned && String(fallback?.connection?.url ?? "").includes(THROTTLED)) {
+        warned = true;
+        console.log(`note: ${THROTTLED} rate-limits heavily; set REGISTRY_RPC_URL for a faster, steadier run\n`);
+    }
+    return fallback;
+}
+
+let pacing = 0; // ms to wait between requests, raised when the node rate-limits
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+function classify(e: any): "gas" | "rate" | "other" {
+    const msg = JSON.stringify(e?.error ?? e?.body ?? e?.message ?? e).toLowerCase();
+    if (msg.includes("out of gas") || msg.includes("gas required exceeds") || msg.includes("gas limit")) return "gas";
+    if (msg.includes("rate limit") || msg.includes("too many requests") || msg.includes("-32016") || msg.includes("429")) return "rate";
+    return "other";
 }
 
 export async function multicall(p: providers.Provider, calls: Call[], chunk = CHUNK): Promise<Res[]> {
@@ -145,24 +166,40 @@ export async function multicall(p: providers.Provider, calls: Call[], chunk = CH
 }
 
 /**
- * Quoter calls burn real gas inside eth_call and their cost varies wildly, so a
- * fixed batch size either wastes round trips or blows the node's gas cap. Halve
- * the batch on failure instead and let it find its own size.
+ * A reverting call comes back inside the aggregate3 result, so any thrown error
+ * is the node's problem, not the chain's. Gas caps are fixed by sending fewer
+ * calls; rate limits are made worse by it, and are backed off instead. Nothing
+ * is ever reported as an empty result on the node's behalf --- doing so would
+ * silently turn a throttled endpoint into "no pool" and quietly change results.
  */
-async function run(p: providers.Provider, slice: Call[]): Promise<Res[]> {
+async function run(p: providers.Provider, slice: Call[], depth = 0): Promise<Res[]> {
     if (!slice.length) return [];
     const data = IMULTICALL.encodeFunctionData("aggregate3", [
         slice.map((c) => ({ target: c.target, allowFailure: true, callData: c.data })),
     ]);
-    try {
-        const raw = await p.call({ to: MULTICALL3, data });
-        const [decoded] = IMULTICALL.decodeFunctionResult("aggregate3", raw);
-        return decoded.map((r: any) => ({ success: r.success, data: r.returnData }));
-    } catch (e: any) {
-        if (slice.length === 1) return [{ success: false, data: "0x" }];
-        const half = Math.ceil(slice.length / 2);
-        return [...await run(p, slice.slice(0, half)), ...await run(p, slice.slice(half))];
+    let last: any;
+    for (let attempt = 0; attempt < 7; attempt++) {
+        try {
+            if (pacing) await sleep(pacing);
+            const raw = await p.call({ to: MULTICALL3, data });
+            const [decoded] = IMULTICALL.decodeFunctionResult("aggregate3", raw);
+            if (pacing > 0 && attempt === 0) pacing = Math.max(0, pacing - 5);
+            return decoded.map((r: any) => ({ success: r.success, data: r.returnData }));
+        } catch (e) {
+            last = e;
+            const kind = classify(e);
+            if (kind === "gas") {
+                if (slice.length === 1) throw new Error(`single call to ${slice[0].target} exceeds the node gas cap`);
+                const half = Math.ceil(slice.length / 2);
+                return [...await run(p, slice.slice(0, half), depth + 1), ...await run(p, slice.slice(half), depth + 1)];
+            }
+            if (kind === "rate") pacing = Math.min(2000, pacing + 100);
+            await sleep(250 * 2 ** attempt);
+        }
     }
+    throw new Error(
+        `RPC failed after 7 attempts for a batch of ${slice.length} (${classify(last)}): ${last?.message ?? last}\n` +
+        `Set REGISTRY_RPC_URL to an endpoint that tolerates this load.`);
 }
 
 /** Decode a result, returning undefined when the call reverted or produced nothing. */

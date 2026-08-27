@@ -60,6 +60,34 @@ an explorer's transaction history is not a reliable substitute. `helpers/registr
 is the checked-in record of what the registry is *supposed* to contain; the audit
 script diffs it against what is actually deployed.
 
+### Workflow
+
+```shell
+yarn registry:audit                  # 1. is the chain what the manifest says?
+yarn registry:routes                 # 2. find better routes -> helpers/proposals.json
+#                                      3. review that file
+yarn registry:apply                  # 4. dry run: see the transactions
+APPLY_EXECUTE=1 yarn registry:apply  # 5. send them (updates the manifest)
+yarn registry:audit                  # 6. confirm
+```
+
+`registry:seed` is only needed when paths were changed on chain outside this
+tooling — it rebuilds the manifest from what is deployed. `registry:sync` is the
+opposite direction, for when the manifest is edited by hand and the chain has to
+catch up.
+
+**Set `REGISTRY_RPC_URL` first.** The endpoint `hardhat.config.ts` uses for
+`mainnet` rate-limits hard enough that the quoting passes take tens of minutes;
+every script here honours the override and the scripts say so if you forget.
+
+```shell
+REGISTRY_RPC_URL=https://base-rpc.publicnode.com yarn registry:routes
+```
+
+Numbers move between runs because prices do. The set of proposals should be
+stable; individual percentages will not be, which is why `registry:apply`
+re-quotes before it sends anything.
+
 ```shell
 # refresh the manifest from chain state
 yarn registry:seed
