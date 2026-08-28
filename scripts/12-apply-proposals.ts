@@ -1,12 +1,11 @@
 import { BigNumber } from "ethers";
 import fs from "fs";
-import { ethers } from "hardhat";
 
 import { utils } from "ethers";
 
 import {
     Call, DexEntry, IDEX, IREGISTRY, Manifest, PROPOSALS, ProposalFile, Route, ZERO,
-    buildQuote, decode, lc, loadManifest, multicall, provider, readQuote, saveManifest,
+    buildQuote, decode, lc, loadManifest, multicall, provider, readQuote, saveManifest, signer,
 } from "./utils/registry";
 
 const IAERO_DEFAULT = new utils.Interface(["function defaultFactory() view returns (address)"]);
@@ -24,7 +23,7 @@ interface Op { kind: string; to: string; data: string; what: string }
 async function main() {
     const file: ProposalFile = JSON.parse(fs.readFileSync(process.env.APPLY_IN ?? PROPOSALS, "utf8"));
     const m: Manifest = loadManifest();
-    const p = EXECUTE ? ethers.provider : provider();
+    const p = provider();
     const sym = (t: string) => m.tokens[lc(t)] ?? t.slice(0, 8);
     const byName = new Map(m.dexes.map((d) => [d.name, d]));
     const minBps = Number(process.env.APPLY_MIN_BPS ?? file.minBps);
@@ -190,18 +189,17 @@ async function main() {
 
     if (!EXECUTE) { console.log("\ndry run — set APPLY_EXECUTE=1 to send"); return; }
 
-    const signers = await ethers.getSigners();
-    if (!signers.length) throw new Error("no signer available; set MNEMONIC in .env");
-    const signer = signers[0];
+    const sender = await signer();
+    const senderAddress = await sender.getAddress();
     const owners = await multicall(p, [...new Set(ops.map((o) => o.to))].map((t) => ({ target: t, data: IDEX.encodeFunctionData("owner") })));
     for (const [i, t] of [...new Set(ops.map((o) => o.to))].entries()) {
         const owner = lc(decode<string>(IDEX, "owner", owners[i]) ?? ZERO);
-        if (owner !== lc(signer.address)) throw new Error(`signer ${signer.address} does not own ${t} (owner ${owner})`);
+        if (owner !== lc(senderAddress)) throw new Error(`signer ${senderAddress} does not own ${t} (owner ${owner})`);
     }
 
-    console.log(`\nsending as ${signer.address}`);
+    console.log(`\nsending as ${senderAddress}`);
     for (const [i, o] of ops.entries()) {
-        const tx = await signer.sendTransaction({ to: o.to, data: o.data });
+        const tx = await sender.sendTransaction({ to: o.to, data: o.data });
         const rcpt = await tx.wait();
         console.log(`  ${i + 1}/${ops.length} ${o.kind} ${o.what} -> ${rcpt.transactionHash}`);
     }

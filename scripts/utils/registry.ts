@@ -1,5 +1,4 @@
-import { ethers } from "hardhat";
-import { BigNumber, providers, utils } from "ethers";
+import { BigNumber, Signer, Wallet, providers, utils } from "ethers";
 import fs from "fs";
 import path from "path";
 
@@ -133,6 +132,18 @@ const IMULTICALL = new utils.Interface([
 export interface Call { target: string; data: string }
 export interface Res { success: boolean; data: string }
 
+// The tooling only needs an RPC and, to send, a key. Hardhat is used when it is
+// there so the hardhat repos keep working unchanged, but it is never required ---
+// the Foundry repos have no hardhat to import.
+function hardhatEthers(): any | undefined {
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        return require("hardhat").ethers;
+    } catch {
+        return undefined;
+    }
+}
+
 // The endpoint hardhat.config uses for `mainnet` throttles hard enough that the
 // quoting passes crawl, so say so once rather than letting a run look hung.
 const THROTTLED = "developer-access-mainnet.base.org";
@@ -141,12 +152,29 @@ let warned = false;
 export function provider(): providers.Provider {
     const url = process.env.REGISTRY_RPC_URL;
     if (url) return new providers.JsonRpcProvider(url);
-    const fallback: any = ethers.provider;
+    const hh = hardhatEthers();
+    if (!hh) throw new Error("set REGISTRY_RPC_URL (no hardhat runtime to fall back to)");
+    const fallback: any = hh.provider;
     if (!warned && String(fallback?.connection?.url ?? "").includes(THROTTLED)) {
         warned = true;
         console.log(`note: ${THROTTLED} rate-limits heavily; set REGISTRY_RPC_URL for a faster, steadier run\n`);
     }
     return fallback;
+}
+
+/** Signer for the scripts that write. Reads and writes share one provider. */
+export async function signer(): Promise<Signer> {
+    const p = provider();
+    const key = process.env.REGISTRY_PRIVATE_KEY;
+    if (key) return new Wallet(key.startsWith("0x") ? key : `0x${key}`, p);
+    if (process.env.REGISTRY_RPC_URL && process.env.MNEMONIC)
+        return Wallet.fromMnemonic(process.env.MNEMONIC).connect(p);
+    const hh = hardhatEthers();
+    if (hh) {
+        const signers = await hh.getSigners();
+        if (signers.length) return signers[0];
+    }
+    throw new Error("no signer: set REGISTRY_PRIVATE_KEY, or MNEMONIC alongside REGISTRY_RPC_URL");
 }
 
 let pacing = 0; // ms to wait between requests, raised when the node rate-limits

@@ -125,6 +125,8 @@ async function main() {
         owner,
         generatedAtBlock: await p.getBlockNumber(),
         intermediateTokens: intermediates,
+        // carried over: these are operator choices, not chain state
+        usdAnchor: existing?.usdAnchor ?? intermediates[intermediates.length - 1],
         tokens: symbols,
         minLiquidity: existing?.minLiquidity ?? {},
         dexes,
