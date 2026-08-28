@@ -3,7 +3,16 @@ import fs from "fs";
 import path from "path";
 
 export const MULTICALL3 = "0xcA11bde05977b3631167028862bE2a173976CA11";
-export const MANIFEST = path.resolve(__dirname, "../../helpers/registry.json");
+// Layouts differ between repos: the hardhat ones keep this in helpers/, the
+// Foundry ones under tools/. Resolve either, and let an env var win.
+function locate(name: string, candidates: string[]): string {
+    const override = process.env[name];
+    if (override) return path.resolve(override);
+    for (const c of candidates) if (fs.existsSync(path.resolve(__dirname, c))) return path.resolve(__dirname, c);
+    return path.resolve(__dirname, candidates[0]);
+}
+
+export const MANIFEST = locate("REGISTRY_MANIFEST", ["../../helpers/registry.json", "../registry.json"]);
 export const ZERO = "0x0000000000000000000000000000000000000000";
 
 // One multicall carries many staticcalls, so the whole audit fits in a handful
@@ -248,7 +257,7 @@ export function saveManifest(m: Manifest) {
     fs.writeFileSync(MANIFEST, JSON.stringify(m, null, 4) + "\n");
 }
 
-export const PROPOSALS = path.resolve(__dirname, "../../helpers/proposals.json");
+export const PROPOSALS = locate("REGISTRY_PROPOSALS", ["../../helpers/proposals.json", "../proposals.json"]);
 
 /** A hop of a proposed route, with the dex-side params it was quoted with. */
 export interface ProposalHop {
