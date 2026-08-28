@@ -104,15 +104,26 @@ async function main() {
     // the hex as its name until someone renames it in the manifest.
     const knownByHex = new Map<string, string>();
     for (const [name, d] of Object.entries(deployments.Dexes ?? {})) knownByHex.set(lc((d as any).hex), name);
-    for (const n of (process.env.SEED_DEX_NAMES ?? "").split(",").map((x) => x.trim()).filter(Boolean))
+    for (const n of (process.env.SEED_DEX_NAMES ?? "").split(",").map((x) => x.trim()).filter(Boolean)) {
         knownByHex.set(lc(utils.keccak256(utils.toUtf8Bytes(n))), n);
+        // Polygon registered its dexes under bytes32 ASCII literals rather than a
+        // keccak of the name, so match that spelling too.
+        knownByHex.set(lc(utils.formatBytes32String(n.slice(0, 31))), n);
+    }
     const prevByHex = new Map<string, DexEntry>();
     existing?.dexes.forEach((d) => prevByHex.set(lc(d.hex), d));
 
     const dexes: DexEntry[] = dexHexes.map((hex, i) => {
         const prev = prevByHex.get(lc(hex));
         const address = lc(decode<string>(IREGISTRY, "dexesInfo", addrs[i]) ?? ZERO);
-        return { ...(prev ?? { name: knownByHex.get(lc(hex)) ?? hex, kind: "unknown" as const, hex: lc(hex) }), address };
+        // A bytes32 that is really an ASCII label reads back as its own name.
+        let ascii: string | undefined;
+        try {
+            const t = utils.parseBytes32String(hex).trim();
+            if (/^[\x20-\x7e]+$/.test(t)) ascii = t;
+        } catch { /* not a string literal */ }
+        const name = knownByHex.get(lc(hex)) ?? ascii ?? hex;
+        return { ...(prev ?? { name, kind: "unknown" as const, hex: lc(hex) }), address };
     });
 
     const tokens = await tokenUniverse(existing, intermediates);
