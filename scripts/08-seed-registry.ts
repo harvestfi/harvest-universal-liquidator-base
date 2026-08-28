@@ -1,17 +1,29 @@
 import fs from "fs";
 import { utils } from "ethers";
 
-import deployments from "../deployments.json";
+// Present in the hardhat repos, absent in the Foundry ones.
+const deployments: any = (() => {
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        return require("../deployments.json");
+    } catch {
+        return {};
+    }
+})();
+
 import {
     Call, DexEntry, IERC20, IREGISTRY, Manifest, PathEntry,
     ZERO, decode, key, lc, loadManifest, multicall, provider, saveManifest, MANIFEST,
 } from "./utils/registry";
 
-const REGISTRY = deployments.UniversalLiquidatorRegistry;
-const UL = deployments.UniversalLiquidator;
+// The Foundry repos have no deployments.json, so the addresses can be given
+// directly. Everything else is read from chain either way.
+const REGISTRY = process.env.REGISTRY_ADDRESS ?? deployments.UniversalLiquidatorRegistry;
+const UL = process.env.UL_ADDRESS ?? deployments.UniversalLiquidator;
 
 // Options come from the environment because `hardhat run` rejects unknown CLI
-// flags: SEED_TOKENS=<json array file>, SEED_FROM_BLOCK=<block>.
+// flags: SEED_TOKENS=<json array file>, SEED_FROM_BLOCK=<block>,
+// SEED_FROM_EXPLORER=<blockscout base url>.
 //
 // `paths` is a bare nested mapping with no enumerator and the registry emits no
 // events, so the configured set can only be found by probing candidate pairs.
@@ -23,6 +35,33 @@ async function tokenUniverse(existing: Manifest | undefined, intermediates: stri
 
     const file = process.env.SEED_TOKENS;
     if (file) (JSON.parse(fs.readFileSync(file, "utf8")) as string[]).forEach((t) => set.add(lc(t)));
+
+    // Cold start on a new chain: the tokens are whatever setPath was ever called
+    // with. The listing may be incomplete --- Base's demonstrably is --- but it
+    // only seeds the candidate set; every pair is then confirmed against chain.
+    const explorer = process.env.SEED_FROM_EXPLORER;
+    if (explorer) {
+        let params = "";
+        let seen = 0;
+        for (let page = 0; page < 40; page++) {
+            const url = `${explorer.replace(/\/$/, "")}/api/v2/addresses/${REGISTRY}/transactions?filter=to${params}`;
+            const res = await fetch(url, { headers: { "User-Agent": "ul-registry-seed/1.0" } });
+            if (!res.ok) throw new Error(`explorer ${res.status} for ${url}`);
+            const body: any = await res.json();
+            for (const t of body.items ?? []) {
+                const raw: string = t.raw_input ?? "0x";
+                if (!raw.startsWith("0xf63b43d7")) continue; // setPath(bytes32,address[])
+                seen++;
+                const w = raw.slice(10).match(/.{64}/g) ?? [];
+                const n = parseInt(w[2] ?? "0", 16);
+                for (let i = 0; i < n; i++) if (w[3 + i]) set.add(lc(`0x${w[3 + i].slice(24)}`));
+            }
+            const next = body.next_page_params;
+            if (!next) break;
+            params = "&" + new URLSearchParams(next as any).toString();
+        }
+        console.log(`explorer: ${seen} setPath calls -> ${set.size} candidate tokens`);
+    }
 
     const from = process.env.SEED_FROM_BLOCK;
     if (from) {
@@ -61,8 +100,12 @@ async function main() {
         target: REGISTRY, data: IREGISTRY.encodeFunctionData("dexesInfo", [h]),
     })));
 
+    // Dex names are only used for readability; a hex with no known preimage keeps
+    // the hex as its name until someone renames it in the manifest.
     const knownByHex = new Map<string, string>();
-    for (const [name, d] of Object.entries(deployments.Dexes)) knownByHex.set(lc(d.hex), name);
+    for (const [name, d] of Object.entries(deployments.Dexes ?? {})) knownByHex.set(lc((d as any).hex), name);
+    for (const n of (process.env.SEED_DEX_NAMES ?? "").split(",").map((x) => x.trim()).filter(Boolean))
+        knownByHex.set(lc(utils.keccak256(utils.toUtf8Bytes(n))), n);
     const prevByHex = new Map<string, DexEntry>();
     existing?.dexes.forEach((d) => prevByHex.set(lc(d.hex), d));
 

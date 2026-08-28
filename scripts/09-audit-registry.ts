@@ -1,6 +1,14 @@
 import { BigNumber, utils } from "ethers";
 
-import deployments from "../deployments.json";
+// Present in the hardhat repos, absent in the Foundry ones.
+const deployments: any = (() => {
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        return require("../deployments.json");
+    } catch {
+        return {};
+    }
+})();
 import {
     Call, DexEntry, IAERO_ROUTER, IBALANCER_DEX, IBVAULT, IDEX, IERC20, IFACTORY, IREGISTRY,
     Manifest, Res, ZERO, decode, key, lc, loadManifest, multicall, provider, readChainPaths,
@@ -51,7 +59,7 @@ async function main() {
     const chainDexAddr = new Map<string, string>();
     chainDexes.forEach((h, i) => chainDexAddr.set(h, lc(decode<string>(IREGISTRY, "dexesInfo", addrs[i]) ?? ZERO)));
 
-    const depByHex = new Map(Object.entries(deployments.Dexes).map(([n, d]) => [lc(d.hex), { n, a: lc(d.address) }]));
+    const depByHex = new Map(Object.entries(deployments.Dexes ?? {}).map(([n, d]: [string, any]) => [lc(d.hex), { n, a: lc(d.address) }]));
     for (const d of m.dexes) {
         const onChain = chainDexAddr.get(lc(d.hex));
         if (onChain === undefined) { report("ERROR", "dexes", `${d.name} is in the manifest but not registered on chain`); continue; }
