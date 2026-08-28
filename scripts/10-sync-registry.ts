@@ -1,8 +1,6 @@
-import { ethers } from "hardhat";
-
 import {
     Call, IREGISTRY, Manifest, ZERO, decode, isZeroHex, lc, loadManifest,
-    multicall, provider, readChainPaths,
+    multicall, provider, readChainPaths, signer,
 } from "./utils/registry";
 
 // Dry run by default. SYNC_EXECUTE=1 sends the transactions.
@@ -14,10 +12,7 @@ async function main() {
     const m: Manifest = loadManifest();
     // In execute mode reads must come from the same node that will receive the
     // writes, so the RPC override is ignored.
-    const p = EXECUTE ? ethers.provider : provider();
-    if (EXECUTE && process.env.REGISTRY_RPC_URL)
-        console.log("note: REGISTRY_RPC_URL ignored in execute mode\n");
-
+    const p = provider();
     const sym = (t: string) => m.tokens[lc(t)] ?? t.slice(0, 8);
     const ops: Op[] = [];
 
@@ -103,15 +98,14 @@ async function main() {
 
     if (!EXECUTE) { console.log("\ndry run — set SYNC_EXECUTE=1 to send"); return; }
 
-    const signers = await ethers.getSigners();
-    if (!signers.length) throw new Error("no signer available; set MNEMONIC in .env");
-    const signer = signers[0];
-    if (lc(signer.address) !== owner)
-        throw new Error(`signer ${signer.address} is not the registry owner ${owner}`);
+    const sender = await signer();
+    const senderAddress = await sender.getAddress();
+    if (lc(senderAddress) !== owner)
+        throw new Error(`signer ${senderAddress} is not the registry owner ${owner}`);
 
-    console.log(`\nsending as ${signer.address}`);
+    console.log(`\nsending as ${senderAddress}`);
     for (const [i, o] of ops.entries()) {
-        const tx = await signer.sendTransaction({ to: m.registry, data: o.data });
+        const tx = await sender.sendTransaction({ to: m.registry, data: o.data });
         const rcpt = await tx.wait();
         console.log(`  ${i + 1}/${ops.length} ${o.kind} ${o.what} -> ${rcpt.transactionHash}`);
     }

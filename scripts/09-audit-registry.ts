@@ -1,6 +1,14 @@
 import { BigNumber, utils } from "ethers";
 
-import deployments from "../deployments.json";
+// Present in the hardhat repos, absent in the Foundry ones.
+const deployments: any = (() => {
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        return require("../deployments.json");
+    } catch {
+        return {};
+    }
+})();
 import {
     Call, DexEntry, IAERO_ROUTER, IBALANCER_DEX, IBVAULT, IDEX, IERC20, IFACTORY, IREGISTRY,
     Manifest, Res, ZERO, decode, key, lc, loadManifest, multicall, provider, readChainPaths,
@@ -10,6 +18,7 @@ import {
 const STRICT = process.env.AUDIT_STRICT === "1";
 
 const IPOOL = new utils.Interface(["function factory() view returns (address)"]);
+const ICURVE = new utils.Interface(["function params(address,address) view returns (uint256[5])"]);
 const IUL = new utils.Interface(["function pathRegistry() view returns (address)"]);
 
 type Sev = "ERROR" | "WARN";
@@ -28,21 +37,37 @@ async function main() {
     const dexByName = new Map(m.dexes.map((d) => [d.name, d]));
 
     // ---------- wiring ----------
+    // A cold-started manifest may not know the UniversalLiquidator yet; that is
+    // worth flagging, not worth crashing over.
+    const wiringCall = m.universalLiquidator
+        ? [{ target: m.universalLiquidator, data: IUL.encodeFunctionData("pathRegistry") }]
+        : [];
     const head = await multicall(p, [
         { target: m.registry, data: IREGISTRY.encodeFunctionData("getAllDexes") },
         { target: m.registry, data: IREGISTRY.encodeFunctionData("getAllIntermediateTokens") },
         { target: m.registry, data: IREGISTRY.encodeFunctionData("owner") },
-        { target: m.universalLiquidator, data: IUL.encodeFunctionData("pathRegistry") },
+        ...wiringCall,
     ]);
     const chainDexes = (decode<string[]>(IREGISTRY, "getAllDexes", head[0]) ?? []).map(lc);
     const chainInter = (decode<string[]>(IREGISTRY, "getAllIntermediateTokens", head[1]) ?? []).map(lc);
     const owner = lc(decode<string>(IREGISTRY, "owner", head[2]) ?? ZERO);
-    const wired = lc(decode<string>(IUL, "pathRegistry", head[3]) ?? ZERO);
-
-    if (wired !== lc(m.registry))
-        report("ERROR", "wiring", `UniversalLiquidator.pathRegistry is ${wired}, manifest registry is ${lc(m.registry)}`);
+    if (!m.universalLiquidator) {
+        report("WARN", "wiring", "manifest has no universalLiquidator; set UL_ADDRESS and re-seed");
+    } else {
+        const wired = lc(decode<string>(IUL, "pathRegistry", head[3]) ?? ZERO);
+        if (wired !== lc(m.registry))
+            report("ERROR", "wiring", `UniversalLiquidator.pathRegistry is ${wired}, manifest registry is ${lc(m.registry)}`);
+    }
     if (owner !== lc(m.owner))
         report("ERROR", "wiring", `registry owner is ${owner}, manifest says ${lc(m.owner)}`);
+
+    // Auditing one chain's manifest against another chain's RPC would compare
+    // unrelated state and report nonsense, so refuse before doing any of it.
+    const chainId = (await p.getNetwork()).chainId;
+    if (m.chainId && chainId !== m.chainId)
+        report("ERROR", "wiring", `connected to chain ${chainId} but the manifest is for ${m.chainId} (${m.network})`);
+    else if (!m.chainId)
+        report("WARN", "wiring", "manifest has no chainId; re-seed to record it");
 
     // ---------- dexes ----------
     const addrs = await multicall(p, chainDexes.map((h) => ({
@@ -51,14 +76,16 @@ async function main() {
     const chainDexAddr = new Map<string, string>();
     chainDexes.forEach((h, i) => chainDexAddr.set(h, lc(decode<string>(IREGISTRY, "dexesInfo", addrs[i]) ?? ZERO)));
 
-    const depByHex = new Map(Object.entries(deployments.Dexes).map(([n, d]) => [lc(d.hex), { n, a: lc(d.address) }]));
+    const depByHex = new Map(Object.entries(deployments.Dexes ?? {}).map(([n, d]: [string, any]) => [lc(d.hex), { n, a: lc(d.address) }]));
     for (const d of m.dexes) {
         const onChain = chainDexAddr.get(lc(d.hex));
         if (onChain === undefined) { report("ERROR", "dexes", `${d.name} is in the manifest but not registered on chain`); continue; }
         if (isZero(onChain)) report("ERROR", "dexes", `${d.name} resolves to address(0) — every path using it reverts`);
         else if (onChain !== lc(d.address)) report("ERROR", "dexes", `${d.name} drift: chain ${onChain}, manifest ${lc(d.address)}`);
+        // Only meaningful where the repo keeps a deployments.json at all; the
+        // Foundry repos do not.
         const dep = depByHex.get(lc(d.hex));
-        if (!dep) report("WARN", "dexes", `${d.name} is not recorded in deployments.json`);
+        if (!dep) { if (depByHex.size) report("WARN", "dexes", `${d.name} is not recorded in deployments.json`); }
         else if (dep.a !== onChain) report("WARN", "dexes", `${d.name} deployments.json says ${dep.a}, chain says ${onChain}`);
         if (d.kind === "unknown") report("WARN", "dexes", `${d.name} has kind "unknown" — its hops cannot be checked`);
     }
@@ -132,9 +159,14 @@ async function main() {
             default:         return { target: t, data: IDEX.encodeFunctionData("router") };
         }
     });
-    const extraCalls: Call[] = hops.map((h) => h.dex.kind === "solidly"
-        ? { target: h.dex.address, data: IDEX.encodeFunctionData("factory", [h.a, h.b]) }
-        : { target: h.dex.address, data: IDEX.encodeFunctionData("router") });
+    const extraCalls: Call[] = hops.map((h) => {
+        if (h.dex.kind === "solidly") return { target: h.dex.address, data: IDEX.encodeFunctionData("factory", [h.a, h.b]) };
+        // CurveDex differs per chain: Base keys nTokens off the pool, mainnet and
+        // arbitrum route through Curve's router with a params array, polygon has
+        // neither. Ask for params and let whichever exists answer.
+        if (h.dex.kind === "curve") return { target: h.dex.address, data: ICURVE.encodeFunctionData("params", [h.a, h.b]) };
+        return { target: h.dex.address, data: IDEX.encodeFunctionData("router") };
+    });
     const [params, extras] = [await multicall(p, paramCalls), await multicall(p, extraCalls)];
 
     const unreadable = new Set<Hop>();
@@ -192,7 +224,15 @@ async function main() {
             return bad(h, `cannot read pair config from ${h.dex.name} at ${h.dex.address}`);
         if (h.dex.kind === "curve") {
             if (isZero(h.pool)) return bad(h, "pool not set");
-            if (!decode<BigNumber>(IDEX, "nTokens", r)?.gt(0)) return bad(h, `nTokens not set for pool ${h.pool}`);
+            // Only judge a variant's config when that variant actually has it: a
+            // reverting getter means this chain's CurveDex does not use it.
+            if (r.success && r.data !== "0x" && !decode<BigNumber>(IDEX, "nTokens", r)?.gt(0))
+                return bad(h, `nTokens not set for pool ${h.pool}`);
+            const px = extras[i];
+            if (px.success && px.data !== "0x") {
+                const arr = decode<BigNumber[]>(ICURVE, "params", px);
+                if (arr && arr.every((v) => v.isZero())) return bad(h, `params not set for ${sym(h.a)}/${sym(h.b)}`);
+            }
         } else if (h.dex.kind === "balancer") {
             if (!h.note || isZero(h.note)) return bad(h, "poolId not set");
             if (!r.success) return bad(h, `poolId ${h.note} is not registered in the vault`);
@@ -208,8 +248,13 @@ async function main() {
             balOf.push({ hop: h, token: t, idx: balCalls.length });
             balCalls.push({ target: t, data: IERC20.encodeFunctionData("balanceOf", [h.pool!]) });
         }
-        balOf.push({ hop: h, token: "", idx: balCalls.length });
-        balCalls.push({ target: h.pool!, data: IPOOL.encodeFunctionData("factory") });
+        // factory() is a reliable "was this deployed" probe on AMM pools, but not
+        // on Curve pools, which mostly do not expose it. There, an address that
+        // holds none of either token is the signal instead.
+        if (h.dex.kind !== "curve") {
+            balOf.push({ hop: h, token: "", idx: balCalls.length });
+            balCalls.push({ target: h.pool!, data: IPOOL.encodeFunctionData("factory") });
+        }
     });
     const bals = await multicall(p, balCalls);
 
@@ -219,6 +264,7 @@ async function main() {
     tokens.forEach((t, i) => DEC.set(t, decode<number>(IERC20, "decimals", decs[i]) ?? 18));
 
     const seen = new Set<Hop>();
+    const held = new Map<Hop, boolean>();
     for (const { hop, token, idx } of balOf) {
         if (token === "") {
             const probe = bals[idx];
@@ -228,15 +274,20 @@ async function main() {
             }
             continue;
         }
+        const raw = decode<BigNumber>(IERC20, "balanceOf", bals[idx]);
+        if (raw?.gt(0)) held.set(hop, true);
         const floor = m.minLiquidity[token];
         if (!floor) continue;
-        const raw = decode<BigNumber>(IERC20, "balanceOf", bals[idx]);
         if (!raw) continue;
         const have = units(raw, DEC.get(token) ?? 18);
         if (have < Number(floor))
             report("WARN", "liquidity",
                 `${m.paths[hop.pathIdx].symbols} [${hop.dex.name}] hop${hop.i} ${sym(hop.a)}/${sym(hop.b)}: pool holds ${have.toFixed(4)} ${sym(token)} (floor ${floor})`);
     }
+
+    for (const h of hops)
+        if (h.dex.kind === "curve" && h.pool && !isZero(h.pool) && !held.get(h))
+            bad(h, `pool ${h.pool} holds none of ${sym(h.a)} or ${sym(h.b)}`);
 
     for (const h of hops)
         if (h.dex.kind === "uniV3" && h.note === `fee ${h.dex.defaultFee}`)
