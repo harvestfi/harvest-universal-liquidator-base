@@ -19,12 +19,12 @@ function getNetworks(): NetworksUserConfig {
     hardhat: {
       accounts: accounts,
       forking: {
-        url: `https://developer-access-mainnet.base.org`,
+        url: `https://base-mainnet.g.alchemy.com/v2/${process.env.ALCHEMEY_KEY}`,
         // blockNumber: 82350734, // <-- edit here
       },
     },
     mainnet: {
-      url: `https://developer-access-mainnet.base.org`,
+      url: `https://base-mainnet.g.alchemy.com/v2/${process.env.ALCHEMEY_KEY}`,
       accounts: accounts,
     },
   }
