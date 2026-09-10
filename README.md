@@ -185,32 +185,62 @@ offers the replacement.
 Curve, Balancer and ERC4626 routes are not quoted, so pairs registered on those
 dexes are skipped rather than compared.
 
-### Routes for a new token
+### Routes the registry does not have yet
 
-A token that is not in the registry yet has no route to compare, so it has to be
-named. `PROPOSE_NEW_TOKENS` takes addresses — inline, or a path to any file they
-appear in — and the proposer looks for a route from each of them to every
-intermediate token, alongside its usual work.
+A pair with nothing registered has no route to compare against, so it has to be
+asked for. There are two ways, depending on what you know:
 
 ```shell
+# "route me from A to B" — both ends named
+PROPOSE_NEW_PAIRS="0x4ed4E862860beD51a9570b96d89aF5E1B0Efefed>cbBTC" yarn registry:routes
+PROPOSE_NEW_PAIRS="AERO>ezETH, cbETH -> USDC" yarn registry:routes
+PROPOSE_NEW_PAIRS=wanted.txt yarn registry:routes
+
+# "this token is new, get it somewhere useful" — one end named, the other
+# being every intermediate token in turn
 PROPOSE_NEW_TOKENS=0x4ed4E862860beD51a9570b96d89aF5E1B0Efefed yarn registry:routes
-PROPOSE_NEW_TOKENS=new-vaults.txt yarn registry:routes    # every 0x… in the file
+PROPOSE_NEW_TOKENS=new-vaults.txt yarn registry:routes
 ```
 
-Candidates are enumerated and quoted exactly as for a registered pair, so the
-route that wins is the one that holds up at the test size. What differs is the
-accept test: there is no incumbent to beat, so a new route is judged on how much
-of the input value it keeps. Anything below `PROPOSE_MIN_RETENTION` (default
-`0.9`, i.e. 90%) is reported as too lossy rather than proposed — an illiquid
-token will quote *something* through almost any pool, and a route that gives up
-half the value is worse than having none.
+`PROPOSE_NEW_PAIRS` takes `SELL>BUY` entries (`->` works too), comma, space or
+newline separated, inline or in a file. Either side can be an address or a
+symbol the manifest already names — a symbol that names two tokens is rejected
+rather than guessed at. `PROPOSE_NEW_TOKENS` is the shorthand for a new reward
+token: it expands to that token against every intermediate, which is all the
+registry needs, since `getPath` reaches everything else from there.
 
-- `PROPOSE_NEW_TOKENS` addresses, or a file containing them
-- `PROPOSE_MIN_RETENTION` value a new route must keep (default `0.9`)
+Both are judged the same way. Candidates are enumerated and quoted exactly as
+for a registered pair, so the route that wins is the one that holds up at the
+test size. What differs is the accept test: with no incumbent to beat, a route
+is judged on how much of the input value it keeps, and anything below
+`PROPOSE_MIN_RETENTION` (default `0.9`, i.e. 90%) is reported as too lossy
+rather than proposed. An illiquid token quotes *something* through almost any
+pool, and a route that gives up half the value is worse than having none.
 
-Tokens already in the manifest are ignored, so the same list can be re-run.
-`registry:apply` sends these like any other proposal, and adds the token and its
-paths to the manifest once they land.
+A pair with no entry of its own is not necessarily unreachable. `getPath` falls
+back to the first intermediate token that has a path on *both* sides and swaps
+in two legs, and because each leg is itself a multi-hop path, the fallback can
+cross more pools than any single entry could. So the proposer asks the registry
+what it does today, and weighs a direct entry against that instead of against
+nothing:
+
+```
+cbETH > DAI: a direct entry keeps 85.0%, the registry already gets ~100.0%
+             via cbETH>WETH then WETH>USDC>DAI
+```
+
+That one is reported rather than proposed — `cbETH>WETH` then `WETH>USDC>DAI`
+crosses three pools and keeps everything, while the best single entry has to
+squeeze through the thin direct DAI pool. The comparison multiplies the share
+each leg keeps, so treat it as approximate.
+
+- `PROPOSE_NEW_PAIRS` `SELL>BUY` entries, or a file containing them
+- `PROPOSE_NEW_TOKENS` single tokens, expanded against every intermediate
+- `PROPOSE_MIN_RETENTION` value such a route must keep (default `0.9`)
+
+A pair that *is* already registered is compared the ordinary way instead, so
+asking for one is never wasted. `registry:apply` sends these like any other
+proposal, and adds the tokens and paths to the manifest once they land.
 
 ### Applying proposals
 
