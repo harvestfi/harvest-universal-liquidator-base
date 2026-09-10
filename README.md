@@ -217,6 +217,23 @@ is judged on how much of the input value it keeps, and anything below
 rather than proposed. An illiquid token quotes *something* through almost any
 pool, and a route that gives up half the value is worse than having none.
 
+A pair with no entry of its own is not necessarily unreachable. `getPath` falls
+back to the first intermediate token that has a path on *both* sides and swaps
+in two legs, and because each leg is itself a multi-hop path, the fallback can
+cross more pools than any single entry could. So the proposer asks the registry
+what it does today, and weighs a direct entry against that instead of against
+nothing:
+
+```
+cbETH > DAI: a direct entry keeps 85.0%, the registry already gets ~100.0%
+             via cbETH>WETH then WETH>USDC>DAI
+```
+
+That one is reported rather than proposed — `cbETH>WETH` then `WETH>USDC>DAI`
+crosses three pools and keeps everything, while the best single entry has to
+squeeze through the thin direct DAI pool. The comparison multiplies the share
+each leg keeps, so treat it as approximate.
+
 - `PROPOSE_NEW_PAIRS` `SELL>BUY` entries, or a file containing them
 - `PROPOSE_NEW_TOKENS` single tokens, expanded against every intermediate
 - `PROPOSE_MIN_RETENTION` value such a route must keep (default `0.9`)
