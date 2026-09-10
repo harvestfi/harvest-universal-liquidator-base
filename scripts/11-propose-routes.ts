@@ -463,8 +463,13 @@ async function main() {
     for (const pr of proposals) {
         const [s, b] = pr.pair.split("|");
         const x = paths.find((q) => lc(q.sellToken) === s && lc(q.buyToken) === b)!;
-        console.log(`${sym(s)} > ${sym(b)}   +${(pr.gain / 100).toFixed(2)}%   on ${fmt(notionals.get(s)!, s)} ${sym(s)}`);
-        console.log(`   now  ${x.symbols} [${x.dex}]  ->  ${fmt(pr.inc, b)} ${sym(b)}`);
+        // BROKEN and NEWROUTE only exist to sort; they are not percentages
+        const headline = pr.fresh
+            ? `no route registered` + (pr.kept === undefined ? "" : `, keeps ${(pr.kept * 100).toFixed(1)}% of value`)
+            : pr.broken ? "registered route does not quote"
+                : `+${(pr.gain / 100).toFixed(2)}%`;
+        console.log(`${sym(s)} > ${sym(b)}   ${headline}   on ${fmt(notionals.get(s)!, s)} ${sym(s)}`);
+        if (!pr.fresh) console.log(`   now  ${x.symbols} [${x.dex}]  ->  ${fmt(pr.inc, b)} ${sym(b)}`);
         console.log(`   alt  ${pr.best.route.label}  ->  ${fmt(pr.best.amount, b)} ${sym(b)}`);
     }
     const file: ProposalFile = {
