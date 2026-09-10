@@ -123,6 +123,9 @@ Errors (exit code 1):
 - every manifest path exists on chain with the same dex and the same token array,
   and no path exists on chain that the manifest does not know about
 - every hop resolves to a pool that is actually deployed
+- no concentrated-liquidity hop sits on a pool with zero active liquidity. Such a
+  pool can hold plenty of both tokens while every position is out of range, and
+  it reverts on any swap — which is a `doHardWork` that reverts, not a bad price
 
 Warnings (exit code 1 only with `AUDIT_STRICT=1`):
 
@@ -173,8 +176,41 @@ the anchor is reported rather than guessed at.
 - `PROPOSE_LIMIT` only look at the first N paths
 - `PROPOSE_VERBOSE=1` print the trade size and every quote
 
+A registered route that does not quote at all is treated as broken rather than
+merely worse: there is no percentage to compare, so any alternative that does
+quote is proposed for it. This is what catches a route whose pool has drained or
+whose liquidity has moved out of range — the audit reports it, and the proposer
+offers the replacement.
+
 Curve, Balancer and ERC4626 routes are not quoted, so pairs registered on those
 dexes are skipped rather than compared.
+
+### Routes for a new token
+
+A token that is not in the registry yet has no route to compare, so it has to be
+named. `PROPOSE_NEW_TOKENS` takes addresses — inline, or a path to any file they
+appear in — and the proposer looks for a route from each of them to every
+intermediate token, alongside its usual work.
+
+```shell
+PROPOSE_NEW_TOKENS=0x4ed4E862860beD51a9570b96d89aF5E1B0Efefed yarn registry:routes
+PROPOSE_NEW_TOKENS=new-vaults.txt yarn registry:routes    # every 0x… in the file
+```
+
+Candidates are enumerated and quoted exactly as for a registered pair, so the
+route that wins is the one that holds up at the test size. What differs is the
+accept test: there is no incumbent to beat, so a new route is judged on how much
+of the input value it keeps. Anything below `PROPOSE_MIN_RETENTION` (default
+`0.9`, i.e. 90%) is reported as too lossy rather than proposed — an illiquid
+token will quote *something* through almost any pool, and a route that gives up
+half the value is worse than having none.
+
+- `PROPOSE_NEW_TOKENS` addresses, or a file containing them
+- `PROPOSE_MIN_RETENTION` value a new route must keep (default `0.9`)
+
+Tokens already in the manifest are ignored, so the same list can be re-run.
+`registry:apply` sends these like any other proposal, and adds the token and its
+paths to the manifest once they land.
 
 ### Applying proposals
 
