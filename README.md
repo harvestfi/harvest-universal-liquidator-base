@@ -160,7 +160,23 @@ findings are still printed, under `ACCEPTED`, with the reason and the date, so
 the decision stays visible rather than disappearing. They do not count toward
 the exit code.
 
-`reason` is required, because a silence with no reason rots. And an entry that
+`reason` is required, because a silence with no reason rots.
+
+An entry can also be scoped to a token rather than a message, for a token that
+cannot be liquidated at all:
+
+```json
+{
+    "sellToken": "0x2da17faf782ae884faf7db2208bbc66b6e085c22",
+    "reason": "ZERO's only venue does not quote, and the paths cannot be withdrawn",
+    "since": "2026-09-22"
+}
+```
+
+That excuses every finding about a path selling it. Naming each path separately
+would say the same thing six times over and go stale the moment a seventh is
+added, and a token with no venue has nothing worth reporting about any path
+that sells it. And an entry that
 stops matching anything is reported as `stale-accepted`, so once the underlying
 thing is fixed or removed, the suppression gets taken out with it.
 
