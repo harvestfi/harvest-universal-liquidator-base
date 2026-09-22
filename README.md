@@ -133,6 +133,37 @@ Warnings (exit code 1 only with `AUDIT_STRICT=1`):
 - a pair has no reverse path
 - a UniV3 hop uses fee 500, which is indistinguishable from never having been set
 
+### Findings you have decided to live with
+
+Some findings are real, will not be fixed, and should not keep a daily check
+red. The registry has no `removePath`, so a path registered on chain can only be
+repointed, never withdrawn — and if there is nothing correct to repoint it at,
+the audit will report it forever.
+
+An `accepted` list in the manifest declares those:
+
+```json
+"accepted": [
+    {
+        "group": "hops",
+        "contains": "hop0 vAMM-VIRTUAL/cbBTC/cbBTC: resolved pool 0x14dde… has no code",
+        "reason": "an LP token is burned for its underlying, not swapped through a pair",
+        "since": "2026-09-22"
+    }
+]
+```
+
+A finding is excused when its `group` matches and its message contains the
+`contains` string, so each entry silences one known thing rather than a class of
+them — a different failure on the same path still shows up as an error. Excused
+findings are still printed, under `ACCEPTED`, with the reason and the date, so
+the decision stays visible rather than disappearing. They do not count toward
+the exit code.
+
+`reason` is required, because a silence with no reason rots. And an entry that
+stops matching anything is reported as `stale-accepted`, so once the underlying
+thing is fixed or removed, the suppression gets taken out with it.
+
 ### Converging the chain to the manifest
 
 `yarn registry:sync` diffs the manifest against the chain and prints the

@@ -2013,5 +2013,13 @@
                 "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
             ]
         }
+    ],
+    "accepted": [
+        {
+            "group": "hops",
+            "contains": "hop0 vAMM-VIRTUAL/cbBTC/cbBTC: resolved pool 0x14dde92b245aa201e47740f37b37c8609c8dddde has no code",
+            "reason": "vAMM-VIRTUAL/cbBTC is an aerodrome LP token, and hop0 asks aerodrome for a pool swapping it against cbBTC, one of its own two sides. No such pool exists or can: an LP token is burned for its underlying, not swapped through a pair. The path is registered on chain and the registry has no removePath, so it cannot be withdrawn -- only repointed, and there is nothing correct to repoint it at. Left as is deliberately.",
+            "since": "2026-09-22"
+        }
     ]
 }
