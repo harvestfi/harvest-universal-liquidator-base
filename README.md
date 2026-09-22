@@ -242,6 +242,47 @@ A pair that *is* already registered is compared the ordinary way instead, so
 asking for one is never wasted. `registry:apply` sends these like any other
 proposal, and adds the tokens and paths to the manifest once they land.
 
+### Watching it on a schedule
+
+`registry:watch` runs the checks a maintainer would run and says something only
+when there is something to do. It holds no key and sends no transaction.
+
+```shell
+WATCH_DRY=1 yarn registry:watch          # print what it would say
+WATCH_MODE=audit yarn registry:watch     # just the breakage check
+```
+
+`.github/workflows/registry-watch.yml` runs it on two cadences, because the two
+checks age differently:
+
+- **daily, audit only.** The audit finds breakage — a pool with no code, a
+  concentrated-liquidity pool whose positions have all moved out of range, a
+  path the chain and the manifest disagree about. That is a liquidation
+  reverting *now*, so it is worth knowing the same day.
+- **weekly, audit and routes.** The route check ranks alternatives by quote, and
+  quotes move with liquidity. A one or two percent improvement seen on a Tuesday
+  is often gone by Thursday, and acting on each one costs gas and an owner
+  signature, so there is little point looking every day.
+
+It reports three things, loudest first: audit errors, registered routes that no
+longer quote (those revert on `doHardWork`), and routes that could be better by
+at least `WATCH_MIN_BPS` (default 100, i.e. 1%). When all three are empty it
+stays quiet, so a message in the channel always means something needs doing.
+
+To set it up, add these repository secrets:
+
+```shell
+gh secret set REGISTRY_RPC_URL        # an archive-free RPC is fine; it only reads
+gh secret set WATCH_DISCORD_WEBHOOK   # a channel webhook, or use telegram:
+gh secret set WATCH_TELEGRAM_TOKEN
+gh secret set WATCH_TELEGRAM_CHAT
+```
+
+Set whichever of the two destinations you want; both work, and it posts to
+either or both. With none set it prints the message instead, which is what the
+dry run does. Applying anything remains manual and local, with the owner key —
+this job is read only by design.
+
 ### Applying proposals
 
 `yarn registry:routes` writes what it found to `helpers/proposals.json` (override
