@@ -36,11 +36,11 @@
     },
     "aero": {
       "hex": "0x143741d31168726372cef297d94be95b79eb20af901c036e5c606216e99815b8",
-      "address": ""
+      "address": "0x6141Cacd5C7752ab0813347Ef87179e46c1c35Fc"
     },
     "aeroSlipstream": {
       "hex": "0x6ac70dc663911fae943651c037eb5dea83590bc0d91936e52ab434329ecc7b79",
-      "address": ""
+      "address": "0x847EDdC78Dc6F3b046427eb1e5878E9df3223267"
     }
   }
 }
