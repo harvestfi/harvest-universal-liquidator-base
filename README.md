@@ -255,7 +255,31 @@ sliver of its deepest pool into `usdAnchor` (USDC), where price impact is
 negligible, and reading the marginal rate off that. A sell token with no route to
 the anchor is reported rather than guessed at.
 
+A route can fill the test size and still be dead at a liquidation's size. The
+registered cbETH/WETH pool held 125 WETH and 2 cbETH: it paid 0.375 cbETH for
+$1000 of WETH and about 2 cbETH for anything larger, however much went in. At
+$1000 it looked equal to every alternative. So every registered route is quoted
+a second time, at `PROPOSE_CAP_FACTOR` times the size (default 10), and one
+whose output falls short of scaling by more than `PROPOSE_CAP_LOSS` (default
+`0.25`) is treated as **capped** there: the alternatives are weighed at that
+size instead, and the proposal says so and carries the size, so `registry:apply`
+re-quotes it there rather than at the headline size.
+
+```
+WETH > cbETH   +152.86% at $10000   on 4.298 WETH
+   the registered route caps: 0.376 cbETH for $1000, 1.488 for $10000
+   now  WETH > cbETH [aeroCL]  ->  1.488 cbETH
+   alt  aeroSlipstream WETH>cbETH  ->  3.759 cbETH
+```
+
+Falling short is a gate, not a verdict: a route into a thin token falls short
+at ten times the size on every venue, and is only proposed if another venue
+does materially better there. `PROPOSE_VERBOSE=1` prints each route's share of
+linear scaling, which is how to see where the gate sits for this chain.
+
 - `PROPOSE_USD` value of the test swap (default `1000`)
+- `PROPOSE_CAP_FACTOR` also test registered routes at this multiple of the size (default `10`)
+- `PROPOSE_CAP_LOSS` shortfall against linear scaling that marks a route capped (default `0.25`)
 - `PROPOSE_MIN_BPS` report threshold (default `50`, i.e. 0.5%)
 - `PROPOSE_LIMIT` only look at the first N paths
 - `PROPOSE_VERBOSE=1` print the trade size and every quote
