@@ -13,7 +13,8 @@
     "registry:sync": "hardhat run scripts/10-sync-registry.ts --network mainnet",
     "registry:routes": "hardhat run scripts/11-propose-routes.ts --network mainnet",
     "registry:apply": "hardhat run scripts/12-apply-proposals.ts --network mainnet",
-    "registry:watch": "ts-node scripts/13-watch-registry.ts"
+    "registry:watch": "ts-node scripts/13-watch-registry.ts",
+    "deploy:dex": "hardhat run scripts/02-deploy-dex.ts --network mainnet"
   },
   "author": "",
   "devDependencies": {

@@ -11,6 +11,14 @@
         {
             "file": "BaseswapDex",
             "name": "baseswap"
+        },
+        {
+            "file": "AeroDex",
+            "name": "aero"
+        },
+        {
+            "file": "AeroSlipstreamDex",
+            "name": "aeroSlipstream"
         }
     ]
 }

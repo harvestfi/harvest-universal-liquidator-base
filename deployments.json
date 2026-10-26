@@ -33,6 +33,14 @@
     "aeroCLV2": {
       "hex": "0xc3c78acd246f88ec4112c9f320fbb0f3a81d9fc3305cde584c756d4b838e510e",
       "address": "0x2A9F9c66f2B775f753157d03A6B227487AF1C478"
+    },
+    "aero": {
+      "hex": "0x143741d31168726372cef297d94be95b79eb20af901c036e5c606216e99815b8",
+      "address": ""
+    },
+    "aeroSlipstream": {
+      "hex": "0x6ac70dc663911fae943651c037eb5dea83590bc0d91936e52ab434329ecc7b79",
+      "address": ""
     }
   }
 }

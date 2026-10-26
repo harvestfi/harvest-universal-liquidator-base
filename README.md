@@ -196,6 +196,43 @@ Paths that exist on chain but not in the manifest are reported and cannot be
 fixed: the registry has no `removePath` and `setPath` rejects arrays shorter than
 two, so such a path can only be repointed or adopted into the manifest.
 
+### The Aero deployment
+
+Aerodrome's successor deployment ("Aero", audited Jun–Sep 2026, with an
+`AerodromeMigration` contract moving liquidity across) changes shape in ways
+that matter here:
+
+- stable and volatile pools come from **separate factories**, so a pair is
+  configured by naming its factory rather than a `stable` flag;
+- the `Metarouter` takes encoded commands, not a route, so `AeroDex` swaps
+  against the pools directly: it moves the input into the pool and the pool pays
+  out. The output is sized with `getAmountOutWithTotalFee`, which charges the
+  fee the caller would actually pay;
+- Slipstream keeps its tick-spacing-packed path, so `AeroSlipstreamDex` mirrors
+  `AeroCLV2Dex` against the new `SwapRouter`;
+- quoting goes through one `Metaquoter` that takes **pool addresses**, V2 or CL
+  alike, which the manifest records as `"quoterStyle": "meta"`.
+
+Two manifest dexes carry this: `aero` (kind `aero`, `poolFactory` volatile,
+`stableFactory` stable) and `aeroSlipstream` (kind `cl`). Both can sit in the
+manifest **before deployment** — the proposer finds and weighs routes onto them
+from the factories and quoter alone — and `registry:apply` holds any proposal
+onto a dex with no address back, by name, until it has one:
+
+```shell
+yarn deploy:dex        # contract AeroDex, name aero; then AeroSlipstreamDex, name aeroSlipstream
+# record each address under dexes in helpers/registry.json and in deployments.json
+yarn registry:apply    # the held-back proposals now go through
+```
+
+The names must be exactly `aero` and `aeroSlipstream`: the registry id is the
+keccak of the name, and the manifest already carries those ids.
+
+Aero also issues a **new AERO token** (`0x3f5bF3EdAc59d650D8fDf9657a71F2f904A3a4Ee`),
+distinct from the one the registry has routes for. Where two tokens share a
+symbol, every report tags them with a short address — `AERO·9401` is the old
+token, `AERO·3f5b` the new — so a line is never ambiguous about which it means.
+
 ### Proposing better routes
 
 `yarn registry:routes` quotes every registered route against the alternatives and
