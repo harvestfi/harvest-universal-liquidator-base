@@ -271,7 +271,7 @@
             "sellToken": "0x940181a94a35a4569e4529a3cdfb74e38fd98631",
             "buyToken": "0x60a3e35cc302bfa44cb288bc5a4f316fdb1adb42",
             "symbols": "AERO > USDC > EURC",
-            "dex": "aeroCL",
+            "dex": "uniV3",
             "path": [
                 "0x940181a94a35a4569e4529a3cdfb74e38fd98631",
                 "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
@@ -383,7 +383,7 @@
             "sellToken": "0x940181a94a35a4569e4529a3cdfb74e38fd98631",
             "buyToken": "0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca",
             "symbols": "AERO > USDC > USDbC",
-            "dex": "aeroCL",
+            "dex": "aerodrome",
             "path": [
                 "0x940181a94a35a4569e4529a3cdfb74e38fd98631",
                 "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
@@ -460,7 +460,7 @@
             "sellToken": "0x940181a94a35a4569e4529a3cdfb74e38fd98631",
             "buyToken": "0x2416092f143378750bb29b79ed961ab195cceea5",
             "symbols": "AERO > WETH > ezETH",
-            "dex": "aeroCL",
+            "dex": "aerodrome",
             "path": [
                 "0x940181a94a35a4569e4529a3cdfb74e38fd98631",
                 "0x4200000000000000000000000000000000000006",
@@ -581,7 +581,7 @@
             "sellToken": "0x940181a94a35a4569e4529a3cdfb74e38fd98631",
             "buyToken": "0x04c0599ae5a44757c0af6f9ec3b93da8976c150a",
             "symbols": "AERO > WETH > weETH",
-            "dex": "aeroCL",
+            "dex": "aerodrome",
             "path": [
                 "0x940181a94a35a4569e4529a3cdfb74e38fd98631",
                 "0x4200000000000000000000000000000000000006",
@@ -957,11 +957,11 @@
         {
             "sellToken": "0x2dad3a13ef0c6366220f989157009e501e7938f8",
             "buyToken": "0xb79dd08ea68a908a97220c76d19a6aa9cbde4376",
-            "symbols": "EXTRA > WETH > USD+",
-            "dex": "aeroCL",
+            "symbols": "EXTRA > USDbC > USD+",
+            "dex": "aerodrome",
             "path": [
                 "0x2dad3a13ef0c6366220f989157009e501e7938f8",
-                "0x4200000000000000000000000000000000000006",
+                "0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca",
                 "0xb79dd08ea68a908a97220c76d19a6aa9cbde4376"
             ]
         },
@@ -1265,7 +1265,7 @@
             "sellToken": "0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca",
             "buyToken": "0x940181a94a35a4569e4529a3cdfb74e38fd98631",
             "symbols": "USDbC > USDC > AERO",
-            "dex": "aeroCL",
+            "dex": "uniV3",
             "path": [
                 "0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca",
                 "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
@@ -1321,7 +1321,7 @@
             "sellToken": "0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca",
             "buyToken": "0xc1cba3fcea344f92d9239c08c0568f6f2f0ee452",
             "symbols": "USDbC > WETH > wstETH",
-            "dex": "aerodrome",
+            "dex": "uniV3",
             "path": [
                 "0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca",
                 "0x4200000000000000000000000000000000000006",
@@ -1594,8 +1594,8 @@
         {
             "sellToken": "0xa88594d404727625a9437c3f886c7643872296ae",
             "buyToken": "0xcb585250f852c6c6bf90434ab21a00f02833a4af",
-            "symbols": "WELL > WETH > cbXRP",
-            "dex": "aeroCL",
+            "symbols": "WELL·a885 > WETH > cbXRP",
+            "dex": "uniV3",
             "path": [
                 "0xa88594d404727625a9437c3f886c7643872296ae",
                 "0x4200000000000000000000000000000000000006",
@@ -1627,8 +1627,8 @@
         {
             "sellToken": "0xa88594d404727625a9437c3f886c7643872296ae",
             "buyToken": "0x60a3e35cc302bfa44cb288bc5a4f316fdb1adb42",
-            "symbols": "WELL > WETH > EURC",
-            "dex": "aeroCL",
+            "symbols": "WELL·a885 > WETH > EURC",
+            "dex": "aerodrome",
             "path": [
                 "0xa88594d404727625a9437c3f886c7643872296ae",
                 "0x4200000000000000000000000000000000000006",
@@ -1638,8 +1638,8 @@
         {
             "sellToken": "0xa88594d404727625a9437c3f886c7643872296ae",
             "buyToken": "0xbaa5cc21fd487b8fcc2f632f3f4e8d37262a0842",
-            "symbols": "WELL > WETH > MORPHO",
-            "dex": "aeroCL",
+            "symbols": "WELL·a885 > WETH > MORPHO",
+            "dex": "uniV3",
             "path": [
                 "0xa88594d404727625a9437c3f886c7643872296ae",
                 "0x4200000000000000000000000000000000000006",
@@ -1897,11 +1897,10 @@
         {
             "sellToken": "0x4200000000000000000000000000000000000006",
             "buyToken": "0x940181a94a35a4569e4529a3cdfb74e38fd98631",
-            "symbols": "WETH > USDC > AERO",
-            "dex": "aeroCL",
+            "symbols": "WETH > AERO",
+            "dex": "aeroCLV2",
             "path": [
                 "0x4200000000000000000000000000000000000006",
-                "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
                 "0x940181a94a35a4569e4529a3cdfb74e38fd98631"
             ]
         },
