@@ -660,7 +660,7 @@ async function main() {
 
     // ---------- report ----------
     const proposals: { pair: string; gain: number; inc: BigNumber; best: any; broken?: boolean; fresh?: boolean;
-        kept?: number; viaLegs?: number; shape?: string; cap?: { base: BigNumber; big: BigNumber } }[] = [];
+        kept?: number; viaLegs?: number; shape?: string; cap?: { base: BigNumber; big: BigNumber }; altBase?: BigNumber }[] = [];
     const unquotable: string[] = [];
     const lossy: string[] = [];
     const unvalued: string[] = [];
@@ -720,19 +720,28 @@ async function main() {
             continue;
         }
         if (capped.has(pair)) {
-            // judged at the larger size, where the registered route falls short
-            const list = bigQuotes.get(pair) ?? [];
-            const incB = list.find((r) => r.incumbent);
-            const bestB = list.length ? list.reduce((a, b) => (b.amount.gt(a.amount) ? b : a)) : undefined;
-            if (!bestB || bestB.incumbent) continue;
-            const incAmt = incB?.amount ?? BigNumber.from(0);
-            const gain = bestB.amount.sub(incAmt).mul(10_000).div(incAmt.isZero() ? 1 : incAmt).toNumber();
-            if (gain >= MIN_BPS) {
-                proposals.push({ pair, gain, inc: incAmt, best: bestB, cap: capped.get(pair) });
-                usedAmount.set(pair, notionals.get(pair.split("|")[0])!.mul(CAP_FACTOR));
-                sizeUsed.set(pair, USD * CAP_FACTOR);
+            // Judged at the larger size, where the registered route falls short
+            // --- but a route that wins there and loses at the size liquidations
+            // actually are would make the common case worse to fix the rare one.
+            // So an alternative has to hold its own at the base size first, and
+            // only then is the comparison made at the larger one.
+            const bigList = bigQuotes.get(pair) ?? [];
+            const incBig = bigList.find((r) => r.incumbent)?.amount ?? BigNumber.from(0);
+            const baseOf = new Map(list.map((r) => [r.route.label, r.amount]));
+            const eligible = bigList.filter((r) => !r.incumbent && (baseOf.get(r.route.label) ?? BigNumber.from(0)).gte(inc.amount));
+            const bestB = eligible.length ? eligible.reduce((a, b) => (b.amount.gt(a.amount) ? b : a)) : undefined;
+            if (bestB) {
+                // an incumbent that returns nothing at the larger size is broken there, not beaten by a percentage
+                const gain = incBig.isZero() ? BROKEN : bestB.amount.sub(incBig).mul(10_000).div(incBig).toNumber();
+                if (gain >= MIN_BPS) {
+                    proposals.push({ pair, gain, inc: incBig, best: bestB, cap: capped.get(pair), broken: incBig.isZero(),
+                        altBase: baseOf.get(bestB.route.label) });
+                    usedAmount.set(pair, notionals.get(pair.split("|")[0])!.mul(CAP_FACTOR));
+                    sizeUsed.set(pair, USD * CAP_FACTOR);
+                    continue;
+                }
             }
-            continue;
+            // nothing qualifies at the larger size: the base-size comparison still stands
         }
         if (best.incumbent) continue;
         const gain = best.amount.sub(inc.amount).mul(10_000).div(inc.amount.isZero() ? 1 : inc.amount).toNumber();
@@ -747,11 +756,13 @@ async function main() {
             console.log(`   ${fmt(r.amount, b0).padStart(16)} ${sym(b0).padEnd(10)} ${r.route.label}${r.incumbent ? "  <- registered" : ""}`);
     }
 
-    const brokenCount = proposals.filter((x) => x.broken).length;
+    const brokenCount = proposals.filter((x) => x.broken && !x.cap).length;
     const freshCount = proposals.filter((x) => x.fresh).length;
+    const capCount = proposals.filter((x) => x.cap).length;
     const notes = [
         brokenCount ? `${brokenCount} because the registered route reverts` : "",
         freshCount ? `${freshCount} with no route registered yet` : "",
+        capCount ? `${capCount} judged at $${(USD * CAP_FACTOR).toFixed(0)} where the registered route caps` : "",
     ].filter(Boolean);
     console.log(`\n=== ${proposals.length} route(s) to set on a $${USD} swap`
         + (notes.length ? `, ${notes.join(" and ")}` : ` (>= ${MIN_BPS} bps)`) + " ===\n");
@@ -763,13 +774,15 @@ async function main() {
             ? (pr.shape ? `no entry of its own` : `no route registered`)
                 + (pr.kept === undefined ? "" : `, keeps ${(pr.kept * 100).toFixed(1)}% of value`)
                 + (pr.viaLegs === undefined ? "" : ` against ~${(pr.viaLegs * 100).toFixed(1)}% today`)
-            : pr.broken ? "registered route does not quote"
+            : pr.cap && pr.broken ? `registered route returns nothing at $${(USD * CAP_FACTOR).toFixed(0)}`
+                : pr.broken ? "registered route does not quote"
                 : pr.cap ? `+${(pr.gain / 100).toFixed(2)}% at $${(USD * CAP_FACTOR).toFixed(0)}`
                 : `+${(pr.gain / 100).toFixed(2)}%`;
         const other = sizeUsed.get(pr.pair);
         console.log(`${sym(s)} > ${sym(b)}   ${headline}   on ${fmt(usedAmount.get(pr.pair) ?? notionals.get(s)!, s)} ${sym(s)}`
             + (other && !pr.cap ? `  (only quotes at $${other.toFixed(0)}, a thin venue)` : ""));
-        if (pr.cap) console.log(`   the registered route caps: ${fmt(pr.cap.base, b)} ${sym(b)} for $${USD}, ${fmt(pr.cap.big, b)} for $${(USD * CAP_FACTOR).toFixed(0)}`);
+        if (pr.cap) console.log(`   the registered route caps: ${fmt(pr.cap.base, b)} ${sym(b)} for $${USD}, ${fmt(pr.cap.big, b)} for $${(USD * CAP_FACTOR).toFixed(0)}`
+            + (pr.altBase ? `; the alternative gives ${fmt(pr.altBase, b)} for $${USD}` : ""));
         if (pr.fresh && pr.shape) console.log(`   now  ${pr.shape}  (two legs, resolved by getPath)`);
         if (!pr.fresh) console.log(`   now  ${x.symbols} [${x.dex}]  ->  ${fmt(pr.inc, b)} ${sym(b)}`);
         console.log(`   alt  ${pr.best.route.label}  ->  ${fmt(pr.best.amount, b)} ${sym(b)}`);

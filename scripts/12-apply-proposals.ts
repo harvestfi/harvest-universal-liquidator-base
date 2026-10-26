@@ -161,7 +161,9 @@ async function main() {
     }
 
     const age = (await p.getBlockNumber()) - file.generatedAtBlock;
-    console.log(`${file.proposals.length} proposal(s) from block ${file.generatedAtBlock} (${age} blocks ago), $${file.usd} swaps`);
+    const otherSizes = file.proposals.filter((pr) => pr.sizeUsd && pr.sizeUsd !== file.usd).length;
+    console.log(`${file.proposals.length} proposal(s) from block ${file.generatedAtBlock} (${age} blocks ago), $${file.usd} swaps`
+        + (otherSizes ? `, ${otherSizes} of them judged at the size they carry` : ""));
     console.log(`applying ${chosen.length}\n`);
 
     // ---------- re-quote before writing anything ----------
@@ -248,7 +250,8 @@ async function main() {
                 console.log(`  skip ${sym(c.pr.sellToken)} > ${sym(c.pr.buyToken)}: gain is now ${(gain / 100).toFixed(2)}%, below ${(minBps / 100).toFixed(2)}%`);
                 continue;
             }
-            console.log(`  ok   ${sym(c.pr.sellToken)} > ${sym(c.pr.buyToken)}: ${(gain / 100).toFixed(2)}% (proposed ${(c.pr.gainBps / 100).toFixed(2)}%)`);
+            console.log(`  ok   ${sym(c.pr.sellToken)} > ${sym(c.pr.buyToken)}: ${(gain / 100).toFixed(2)}% (proposed ${(c.pr.gainBps / 100).toFixed(2)}%)`
+                + (c.pr.sizeUsd && c.pr.sizeUsd !== file.usd ? ` at $${c.pr.sizeUsd}` : ""));
             keep.push(c);
         }
         console.log("");
