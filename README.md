@@ -263,7 +263,10 @@ a second time, at `PROPOSE_CAP_FACTOR` times the size (default 10), and one
 whose output falls short of scaling by more than `PROPOSE_CAP_LOSS` (default
 `0.25`) is treated as **capped** there: the alternatives are weighed at that
 size instead, and the proposal says so and carries the size, so `registry:apply`
-re-quotes it there rather than at the headline size.
+re-quotes it there. An alternative is only eligible if it returns at least what
+the registered route does at the headline size --- a route that wins at ten
+times the size and loses at the size liquidations actually are would make the
+common case worse to fix the rare one --- and apply checks that again too.
 
 ```
 WETH > cbETH   +152.86% at $10000   on 4.298 WETH
@@ -412,7 +415,10 @@ the `setFee` / `setTickSpacing` / `pairSetup` calls needed to match before the
 
 Every proposal is **re-quoted before anything is sent**, because prices move
 between proposing and applying; one that no longer clears the threshold is
-skipped with a note. `APPLY_SKIP_RECHECK=1` disables that.
+skipped with a note. A proposal judged at a larger size, where the registered
+route caps, is re-quoted at that size and at the headline size, and is skipped
+if it now returns less than the registered route at the headline size.
+`APPLY_SKIP_RECHECK=1` disables all of that.
 
 Two things worth knowing:
 
