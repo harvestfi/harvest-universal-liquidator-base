@@ -264,9 +264,10 @@ whose output falls short of scaling by more than `PROPOSE_CAP_LOSS` (default
 `0.25`) is treated as **capped** there: the alternatives are weighed at that
 size instead, and the proposal says so and carries the size, so `registry:apply`
 re-quotes it there. An alternative is only eligible if it returns at least what
-the registered route does at the headline size --- a route that wins at ten
-times the size and loses at the size liquidations actually are would make the
-common case worse to fix the rare one --- and apply checks that again too.
+the registered route does at the headline size, give or take a basis point of
+rounding between pools --- a route that wins at ten times the size and loses at
+the size liquidations actually are would make the common case worse to fix the
+rare one --- and apply checks that again too.
 
 ```
 WETH > cbETH   +152.86% at $10000   on 4.298 WETH
