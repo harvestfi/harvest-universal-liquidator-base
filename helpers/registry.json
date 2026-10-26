@@ -1595,7 +1595,7 @@
         {
             "sellToken": "0xa88594d404727625a9437c3f886c7643872296ae",
             "buyToken": "0xcb585250f852c6c6bf90434ab21a00f02833a4af",
-            "symbols": "WELL\u00b7a885 > WETH > cbXRP",
+            "symbols": "WELL > WETH > cbXRP",
             "dex": "uniV3",
             "path": [
                 "0xa88594d404727625a9437c3f886c7643872296ae",
@@ -1628,7 +1628,7 @@
         {
             "sellToken": "0xa88594d404727625a9437c3f886c7643872296ae",
             "buyToken": "0x60a3e35cc302bfa44cb288bc5a4f316fdb1adb42",
-            "symbols": "WELL\u00b7a885 > WETH > EURC",
+            "symbols": "WELL > WETH > EURC",
             "dex": "aerodrome",
             "path": [
                 "0xa88594d404727625a9437c3f886c7643872296ae",
@@ -1639,7 +1639,7 @@
         {
             "sellToken": "0xa88594d404727625a9437c3f886c7643872296ae",
             "buyToken": "0xbaa5cc21fd487b8fcc2f632f3f4e8d37262a0842",
-            "symbols": "WELL\u00b7a885 > WETH > MORPHO",
+            "symbols": "WELL > WETH > MORPHO",
             "dex": "uniV3",
             "path": [
                 "0xa88594d404727625a9437c3f886c7643872296ae",
