@@ -170,6 +170,25 @@
             "address": "0x2a9f9c66f2b775f753157d03a6b227487af1c478",
             "poolFactory": "0xf8f2eB4940CFE7d13603DDDD87f123820Fc061Ef",
             "quoter": "0x514c8B5f54112481E28028F1166Bd78501089259"
+        },
+        {
+            "name": "aero",
+            "kind": "aero",
+            "hex": "0x143741d31168726372cef297d94be95b79eb20af901c036e5c606216e99815b8",
+            "address": "",
+            "poolFactory": "0x8E6a9FCd1d638CC760Ffba397605Fe3355dE76D2",
+            "stableFactory": "0x78589E876edcEbdce72ee3436ab3c9AD3a7cEF2D",
+            "quoter": "0x1dDfeC5058180C207F55BB77D95AcDd0d8227868"
+        },
+        {
+            "name": "aeroSlipstream",
+            "kind": "cl",
+            "hex": "0x6ac70dc663911fae943651c037eb5dea83590bc0d91936e52ab434329ecc7b79",
+            "address": "",
+            "poolFactory": "0x9CB220581b91b0C83223012FE69688b92aD07a76",
+            "router": "0x9Ee35Bf1bd69a03c6F0393582030fCe8Bb93D418",
+            "quoter": "0x1dDfeC5058180C207F55BB77D95AcDd0d8227868",
+            "quoterStyle": "meta"
         }
     ],
     "paths": [

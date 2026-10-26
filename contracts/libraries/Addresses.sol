@@ -8,4 +8,5 @@ library Addresses {
     address constant uniswapV3Router = 0x2626664c2603336E57B271c5C0b26F421741e481;
     address constant aeroCLRouter = 0xBE6D8f0d05cC4be24d5167a3eF062215bE6D18a5;
     address constant aeroCLV2Router = 0x698Cb2b6dd822994581fEa6eA4Fc755d1363A92F;
+    address constant aeroSlipstreamRouter = 0x9Ee35Bf1bd69a03c6F0393582030fCe8Bb93D418;
 }
