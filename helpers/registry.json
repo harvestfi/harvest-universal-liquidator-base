@@ -4,7 +4,7 @@
     "registry": "0x07d212988ECDf8d2c2Ab448114685CE5fDf07a4C",
     "universalLiquidator": "0x589Ff9f1E9f517b232808280c46a64a36Ac557d5",
     "owner": "0x6a74649aCFD7822ae8Fb78463a9f2192752E5Aa2",
-    "generatedAtBlock": 53157502,
+    "generatedAtBlock": 53240310,
     "intermediateTokens": [
         "0x4200000000000000000000000000000000000006",
         "0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca",
@@ -129,6 +129,20 @@
             "address": "0x3c304e03e8ba4daa23671fffab45288505bf3992",
             "poolFactory": "0x33128a8fC17869897dcE68Ed026d694621f6FDfD",
             "defaultFee": 500,
+            "quoter": "0x3d4e44Eb1374240CE5F1B871ab261CD16335B76a",
+            "tiers": [
+                100,
+                500,
+                3000,
+                10000
+            ]
+        },
+        {
+            "name": "uniV3Exact",
+            "kind": "uniV3",
+            "hex": "0xae939a7238a585480dd8793bf10ee40c25d859e8ecb38054c3926e7e28a9d4da",
+            "address": "0xb0b200f46448a9d3ee1ed7352ebc4b5d61edc120",
+            "poolFactory": "0x33128a8fC17869897dcE68Ed026d694621f6FDfD",
             "quoter": "0x3d4e44Eb1374240CE5F1B871ab261CD16335B76a",
             "tiers": [
                 100,
@@ -810,7 +824,7 @@
             "sellToken": "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf",
             "buyToken": "0xe7798f023fc62146e8aa1b36da45fb70855a77ea",
             "symbols": "cbBTC > WETH > FARM > iFARM",
-            "dex": "uniV3",
+            "dex": "uniV3Exact",
             "path": [
                 "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf",
                 "0x4200000000000000000000000000000000000006",
@@ -995,7 +1009,7 @@
             "sellToken": "0xd08a2917653d4e460893203471f0000826fb4034",
             "buyToken": "0xe7798f023fc62146e8aa1b36da45fb70855a77ea",
             "symbols": "FARM > iFARM",
-            "dex": "uniV3",
+            "dex": "uniV3Exact",
             "path": [
                 "0xd08a2917653d4e460893203471f0000826fb4034",
                 "0xe7798f023fc62146e8aa1b36da45fb70855a77ea"
@@ -1297,7 +1311,7 @@
             "sellToken": "0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca",
             "buyToken": "0xe7798f023fc62146e8aa1b36da45fb70855a77ea",
             "symbols": "USDbC > WETH > FARM > iFARM",
-            "dex": "uniV3",
+            "dex": "uniV3Exact",
             "path": [
                 "0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca",
                 "0x4200000000000000000000000000000000000006",
@@ -1410,7 +1424,7 @@
             "sellToken": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
             "buyToken": "0xe7798f023fc62146e8aa1b36da45fb70855a77ea",
             "symbols": "USDC > WETH > FARM > iFARM",
-            "dex": "uniV3",
+            "dex": "uniV3Exact",
             "path": [
                 "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
                 "0x4200000000000000000000000000000000000006",
@@ -1518,7 +1532,7 @@
             "sellToken": "0x04c0599ae5a44757c0af6f9ec3b93da8976c150a",
             "buyToken": "0xe7798f023fc62146e8aa1b36da45fb70855a77ea",
             "symbols": "weETH > WETH > FARM > iFARM",
-            "dex": "uniV3",
+            "dex": "uniV3Exact",
             "path": [
                 "0x04c0599ae5a44757c0af6f9ec3b93da8976c150a",
                 "0x4200000000000000000000000000000000000006",
@@ -1827,7 +1841,7 @@
             "sellToken": "0x4200000000000000000000000000000000000006",
             "buyToken": "0xe7798f023fc62146e8aa1b36da45fb70855a77ea",
             "symbols": "WETH > FARM > iFARM",
-            "dex": "uniV3",
+            "dex": "uniV3Exact",
             "path": [
                 "0x4200000000000000000000000000000000000006",
                 "0xd08a2917653d4e460893203471f0000826fb4034",
