@@ -41,6 +41,10 @@
     "aeroSlipstream": {
       "hex": "0x6ac70dc663911fae943651c037eb5dea83590bc0d91936e52ab434329ecc7b79",
       "address": "0x847EDdC78Dc6F3b046427eb1e5878E9df3223267"
+    },
+    "uniV3Exact": {
+      "hex": "0xae939a7238a585480dd8793bf10ee40c25d859e8ecb38054c3926e7e28a9d4da",
+      "address": "0xb0b200F46448a9D3EE1ed7352EbC4b5D61EdC120"
     }
   }
 }
